@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- Makes device-sdk/src/test/resources/push-vectors.json with the OhrTech .NET Management SDK's
+         sealer (see README.md).
+         ManagementSdk: a checkout of github.com/OhrTech/management-sdk-dotnet. -->
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <ManagementSdk Condition="'$(ManagementSdk)' == ''">../../../management-sdk-dotnet</ManagementSdk>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="$(ManagementSdk)/src/OhrTech.Management/OhrTech.Management.csproj" />
+    </ItemGroup>
+</Project>
