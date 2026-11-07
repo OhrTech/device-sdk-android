@@ -29,7 +29,7 @@ import java.util.Base64
 
 /**
  * Device checks of the library against the real Agent and TEE (debug builds only):
- * `am start -n <pkg>/net.ohrtech.device.sample.ChecksActivity --es check keys|push [--es senderKey <b64>] [--es suite x25519|xwing-mldsa65]`.
+ * `am start -n <pkg>/net.ohrtech.device.sample.ChecksActivity --es check keys|push [--es senderKey <b64>] [--es suite x25519|xwing-mldsa65] [--es skip name,name]`.
  * Logs "CHECK PASS|FAIL name" (tag OhrSdkCheck) and writes files/checks-<check>.json.
  */
 class ChecksActivity : Activity() {
@@ -78,7 +78,14 @@ class ChecksActivity : Activity() {
         results.put(JSONObject().put("name", name).put("ok", false).put("detail", e.toString()))
     }
 
+    /** --es skip "name,name": checks not to run (e.g. one known to crash a test build). */
+    private val skip by lazy { intent.getStringExtra("skip")?.split(',')?.map { it.trim() }?.toSet().orEmpty() }
+
     private inline fun step(name: String, block: () -> Any?) {
+        if (name in skip) {
+            Log.i(TAG, "CHECK SKIP $name")
+            return
+        }
         try {
             val r = block()
             pass(name, if (r is String) r else "")
