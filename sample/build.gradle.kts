@@ -8,10 +8,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "net.ohrtech.device.sample"
+        // -PsampleAppId / -PsampleVersion: run the sample as another hub app (device checks).
+        applicationId = providers.gradleProperty("sampleAppId").getOrElse("net.ohrtech.device.sample")
         minSdk = 33
         targetSdk = 34
-        versionCode = 1
+        versionCode = providers.gradleProperty("sampleVersion").getOrElse("1").toInt()
         versionName = "1"
     }
 
