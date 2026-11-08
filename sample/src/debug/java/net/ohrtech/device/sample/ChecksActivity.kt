@@ -59,6 +59,32 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            // --es config <base64 JSON network>: join it, follow the state for --ei watch seconds (40), forget it.
+                            "wifi-join" -> {
+                                val config = JSONObject(String(Base64.getDecoder().decode(intent.getStringExtra("config") ?: "")))
+                                val ssid = config.optString("ssid")
+                                var identity: String? = null
+                                step("connect ${config.optString("security")}/${config.optJSONObject("eap")?.optString("method")}") {
+                                    identity = sdk.wifi.connect(config)
+                                    identity!!
+                                }
+                                val seen = mutableListOf<String>()
+                                step("join $ssid") {
+                                    val until = System.currentTimeMillis() + intent.getIntExtra("watch", 40) * 1000L
+                                    var joined = false
+                                    while (System.currentTimeMillis() < until && !joined) {
+                                        val st = sdk.wifi.state()
+                                        val now = st.state + ":" + (st.connected?.optString("ssid") ?: "-")
+                                        if (seen.lastOrNull() != now) seen += now
+                                        joined = st.connected?.optString("ssid") == ssid
+                                        Thread.sleep(500)
+                                    }
+                                    out.put("states", JSONArray(seen))
+                                    check(joined) { "never on $ssid: ${seen.joinToString(" > ")}" }
+                                    seen.joinToString(" > ")
+                                }
+                                identity?.let { id -> step("forget") { sdk.wifi.forget(id); id } }
+                            }
                             "settings-hidden" -> for (key in listOf("apps.config", "apps.certificates", "apps.crash_reports", "usb.devices", "sdk.access")) {
                                 step("$key hidden") {
                                     check(key !in sdk.settings.keys()) { "listed" }
