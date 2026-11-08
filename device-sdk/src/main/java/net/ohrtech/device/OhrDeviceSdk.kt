@@ -160,7 +160,7 @@ class OhrDeviceSdk private constructor(
             val service = IOhrDeviceSdk.Stub.asInterface(bound.get())
             try {
                 val s = agentCall { service.hello(VERSION) }
-                return OhrDeviceSdk(app, service, conn, Session(s.app, s.packageName, s.appVersion,
+                return OhrDeviceSdk(app, service, conn, Session(PublicIds.app(s.app), s.packageName, s.appVersion,
                     s.areas.toSet(), s.agentVersion, s.agentInterface))
             } catch (e: Exception) {
                 runCatching { app.unbindService(conn) }
