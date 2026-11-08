@@ -1,0 +1,74 @@
+name: Release
+
+# Push a tag such as v0.1.0 to publish net.ohrtech:device-sdk:0.1.0 to Maven Central, through the
+# Central Portal (central.sonatype.com), where the net.ohrtech namespace is verified. Secrets, in the
+# "release" environment:
+#   CENTRAL_USERNAME, CENTRAL_PASSWORD   a Central Portal user token
+#   SIGNING_KEY, SIGNING_PASSWORD        the OhrTech release signing key (ASCII-armoured) and its passphrase
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write   # the GitHub release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            25
+            21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Version from the tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build, and test on JDK 25
+        run: ./gradlew :device-sdk:assembleRelease :device-sdk:testReleaseUnitTest -PtestJdk="$JAVA_HOME_25_X64" -PsdkVersion="$VERSION"
+
+      - name: Sign into the staging repository
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          ./gradlew :device-sdk:publishReleasePublicationToStagingRepository -PsdkVersion="$VERSION"
+          cd device-sdk/build/staging-repo
+          test -f "net/ohrtech/device-sdk/$VERSION/device-sdk-$VERSION.aar.asc"
+          zip -qr "$GITHUB_WORKSPACE/bundle.zip" net -x '*/maven-metadata.xml*'
+
+      - name: Upload to the Central Portal and wait until it is published
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+        run: |
+          auth="Authorization: Bearer $(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)"
+          id=$(curl -fsS -X POST -H "$auth" -F bundle=@bundle.zip \
+            "https://central.sonatype.com/api/v1/publisher/upload?name=device-sdk-$VERSION&publishingType=AUTOMATIC")
+          echo "deployment $id"
+          for i in $(seq 1 90); do
+            sleep 20
+            state=$(curl -fsS -X POST -H "$auth" "https://central.sonatype.com/api/v1/publisher/status?id=$id" | jq -r .deploymentState)
+            echo "$state"
+            case "$state" in
+              PUBLISHED) exit 0 ;;
+              FAILED) curl -fsS -X POST -H "$auth" "https://central.sonatype.com/api/v1/publisher/status?id=$id" | jq .errors; exit 1 ;;
+            esac
+          done
+          echo "still not published after 30 minutes; see central.sonatype.com" >&2
+          exit 1
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          d=device-sdk/build/staging-repo/net/ohrtech/device-sdk/$VERSION
+          gh release create "$GITHUB_REF_NAME" "$d/device-sdk-$VERSION.aar" "$d/device-sdk-$VERSION-sources.jar" \
+            --title "$GITHUB_REF_NAME" --generate-notes $([[ "$VERSION" == *-* ]] && echo --prerelease)

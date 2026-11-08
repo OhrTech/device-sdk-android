@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          # 25 for the JVM tests (it has ML-DSA-65); 21 runs Gradle.
+          java-version: |
+            25
+            21
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Build, and test on JDK 25
+        run: ./gradlew :device-sdk:assembleRelease :device-sdk:testReleaseUnitTest :sample:assembleDebug -PtestJdk="$JAVA_HOME_25_X64"
+
+      - name: The publication Maven Central gets
+        run: ./gradlew :device-sdk:publishReleasePublicationToStagingRepository
