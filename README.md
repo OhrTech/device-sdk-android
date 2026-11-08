@@ -111,6 +111,44 @@ Before `onMessage`, the library checks that one of your sender keys signed the m
 opens with this app's key, that it hasn't expired (2 minutes' grace for the clock), and that its id
 is new. If any check fails, it drops the message, tells the hub why, and calls `onDropped`.
 
+## Managed configuration
+
+Settings your app declares in `res/xml/app_restrictions.xml` (manifest meta-data
+`android.content.APP_RESTRICTIONS`), set per fleet or per device in the portal or with the Management
+API. The portal shows a form from the app's own declaration; secrets (`hidden`) are sealed until they
+reach the device.
+
+```kotlin
+val store = sdk.config.int("store_number")          // the declared default when it isn't set
+val lanes = sdk.config.bundles("lanes")
+sdk.config.changes.collect { values -> reload(values) }
+```
+
+`OhrConfig(context)` works without an Agent connection too. It is Android's own
+`RestrictionsManager`, so code that already reads application restrictions works as it is.
+
+## Device attestation
+
+Proof for your server that a request comes from your app, unmodified, on a specific, genuine and
+secure OhrTech device, without a secret in the APK. `attest` makes a key in your app's Android Keystore
+(in the TEE), bound to your server's challenge, and returns its certificate chain up to the OhrTech
+Attestation Root. The chain names the device (`dev_…`) and says which app made the key (package and
+signer), the boot state and the patch levels.
+
+```kotlin
+val attestation = sdk.attestation.attest(serverChallenge)            // or Suite.EC_MLDSA65
+myServer.register(attestation.toJson())                              // once
+val token = sdk.attestation.token("https://api.example.com")         // each request, 5 minutes
+```
+
+Two suites: `EC` (P-256), and `EC_MLDSA65`, post-quantum: an EC key and an ML-DSA-65 key, both
+attested, every token signed with both. Your server checks the chain once and keeps the public
+key(s): online with the Management API (`POST /v1/attestations/verify`, which also names the fleet
+and app for your own devices), or offline with the Management SDK (`DeviceAttestationVerifier` in
+.NET) against the published root and the signed status list of revoked devices
+(`GET /v1/attestations/status`). Then it checks each request's token with those keys
+(`AttestationToken.Verify`).
+
 ## Errors
 
 Every call throws an `OhrException`: `NotManaged`, `NotAllowed(area)`, `FleetLocked(key)`,

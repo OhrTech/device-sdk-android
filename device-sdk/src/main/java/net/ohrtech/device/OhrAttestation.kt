@@ -80,7 +80,8 @@ class OhrAttestation {
      * A short-lived proof for one request, signed by the attested key(s):
      * `header.payload.ecSignature[.mlDsa65Signature]`, base64url, with
      * header `{"typ":"ohr-attest","alg":"ES256"|"ES256+ML-DSA-65"}` and payload
-     * `{"aud", "iat", "exp", ?"nonce"}`. The ML-DSA-65 signature covers `header.payload` too.
+     * `{"aud", "iat", "exp", ?"nonce"}`. The EC signature is JWS's (r ‖ s), so an ES256 token is a
+     * standard JWS; the ML-DSA-65 signature (pure, empty context) covers `header.payload` too.
      */
     @WorkerThread
     @JvmOverloads
@@ -90,7 +91,7 @@ class OhrAttestation {
         val header = JSONObject().put("typ", "ohr-attest").put("alg", if (s == Suite.EC) "ES256" else "ES256+ML-DSA-65")
         val payload = JSONObject().put("aud", audience).put("iat", now).put("exp", now + ttlSeconds).apply { nonce?.let { put("nonce", it) } }
         val signed = "${b64url(header.toString().toByteArray())}.${b64url(payload.toString().toByteArray())}"
-        val ec = sign("SHA256withECDSA", EC_ALIAS, signed.toByteArray())
+        val ec = p1363(sign("SHA256withECDSA", EC_ALIAS, signed.toByteArray()))
         val pq = if (s == Suite.EC_MLDSA65) "." + b64url(sign("ML-DSA-65", MLDSA_ALIAS, signed.toByteArray())) else ""
         return "$signed.${b64url(ec)}$pq"
     }
@@ -106,6 +107,20 @@ class OhrAttestation {
         const val STORE = "AndroidKeyStore"
         const val EC_ALIAS = "net.ohrtech.attestation.ec"
         const val MLDSA_ALIAS = "net.ohrtech.attestation.mldsa65"
+        /** An ECDSA P-256 signature from DER (SEQUENCE of two INTEGERs) to JWS's 64 bytes, r ‖ s. */
+        fun p1363(der: ByteArray): ByteArray {
+            val out = ByteArray(64)
+            var i = 2 + (if (der[1].toInt() and 0x80 != 0) der[1].toInt() and 0x7f else 0)
+            for (half in 0..1) {
+                require(der[i].toInt() == 0x02) { "not an ECDSA signature" }
+                var len = der[i + 1].toInt()
+                var start = i + 2
+                while (len > 32) { start++; len-- }  // a leading 0x00
+                System.arraycopy(der, start, out, half * 32 + 32 - len, len)
+                i = start + len
+            }
+            return out
+        }
         fun b64(b: ByteArray): String = Base64.getEncoder().encodeToString(b)
         fun b64url(b: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(b)
     }
