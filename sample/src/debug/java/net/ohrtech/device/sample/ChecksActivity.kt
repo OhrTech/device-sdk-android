@@ -56,6 +56,29 @@ class ChecksActivity : Activity() {
                             "unregister" -> step("unregister") { sdk.push.unregister(); check(sdk.push.token() == null) }
                             "config" -> config(sdk)
                             "attestation" -> attestation(sdk)
+                            // Kiosk mode and its watchdog (the Agent starts the app again after these).
+                            "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
+                            "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "kiosk-exit" -> step("request exit") { sdk.kiosk.requestExit(); "the keypad is up" }
+                            "kiosk-hang" -> step("heartbeat, then hang") {
+                                // Beats every 750 ms, then the main thread stops for 30 s: the Agent stops the app after ~3 s.
+                                sdk.kiosk.heartbeat(3000)
+                                Thread.sleep(2000)
+                                runOnUiThread { Thread.sleep(30_000) }
+                                Thread.sleep(30_000)
+                                error("still alive 30 s later")
+                            }
+                            "crash" -> {
+                                Log.i(TAG, "CHECK crashing on purpose")
+                                runOnUiThread { throw IllegalStateException("checks: a crash on purpose") }
+                                Thread.sleep(5000)
+                            }
+                            "hang" -> {
+                                // No heartbeat: Android's ANR (on the next input) is what the watchdog sees.
+                                Log.i(TAG, "CHECK hanging the main thread on purpose")
+                                runOnUiThread { Thread.sleep(120_000) }
+                                Thread.sleep(120_000)
+                            }
                             "config-watch" -> step("config change arrives") {
                                 // One change of the managed configuration, within 90 s (the hub sends it).
                                 val changed = kotlinx.coroutines.runBlocking {

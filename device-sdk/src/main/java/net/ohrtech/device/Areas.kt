@@ -1,6 +1,8 @@
 package net.ohrtech.device
 
 import android.app.Activity
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -161,6 +163,57 @@ class OhrKiosk internal constructor(private val sdk: OhrDeviceSdk) {
     /** The device-wide lock task mode as it changes ("none", "locked", "pinned"); [state] says whose. */
     val modeChanges: Flow<String> get() = watcher.flow
     fun listenMode(executor: Executor, listener: OhrListener<String>): Closeable = watcher.listen(executor, listener)
+
+    private fun needsVersion2() {
+        if (sdk.session.agentInterface < 2) throw OhrException.Unsupported("This OhrTech Agent is too old for it", needsAgent = 1061)
+    }
+
+    /**
+     * Opens the Agent's exit PIN keypad over the app, for staff to leave kiosk mode for a while (from
+     * the app's own staff menu, say). The app must be the one pinned. NotAllowed when the fleet doesn't
+     * let the app offer it; Unsupported when no exit PIN is set.
+     */
+    @WorkerThread
+    fun requestExit() {
+        needsVersion2()
+        agentCall { api.requestExit() }
+    }
+
+    private val main = Handler(Looper.getMainLooper())
+    @Volatile
+    private var beating: Runnable? = null
+
+    /**
+     * Tells the Agent's kiosk watchdog that the app's main thread is alive: the library beats from the
+     * main thread, a few times per [timeoutMs]. If the beats stop for longer (the main thread hangs),
+     * the Agent stops the app and starts it again. Only while the app is pinned; call it again after
+     * [start]. [stopHeartbeat] ends it.
+     */
+    @JvmOverloads
+    fun heartbeat(timeoutMs: Long = 10_000) {
+        needsVersion2()
+        require(timeoutMs in 2_000..600_000) { "timeoutMs is 2 s to 10 minutes" }
+        stopHeartbeat()
+        val api = api
+        val every = timeoutMs / 4
+        val beat = object : Runnable {
+            override fun run() {
+                if (beating !== this) return
+                runCatching { api.heartbeat(timeoutMs.toInt()) }
+                main.postDelayed(this, every)
+            }
+        }
+        beating = beat
+        main.post(beat)
+    }
+
+    /** Stops the heartbeat (and the Agent's watch on it). */
+    fun stopHeartbeat() {
+        val b = beating ?: return
+        beating = null
+        main.removeCallbacks(b)
+        runCatching { api.heartbeat(0) }
+    }
 }
 
 /** Battery (always), reboots, screen timeout and brightness (with the fleet's "power" grant). */

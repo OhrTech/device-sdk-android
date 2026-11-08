@@ -21,7 +21,7 @@ interface IOhrDeviceSdk {
     const String ACTION_BIND = "net.ohrtech.device.action.SDK";
 
     /** This interface's version. 1: version, hello, area. */
-    const int VERSION = 1;
+    const int VERSION = 2;
 
     /** The caller is not an app the hub installed on this device. Message: empty. */
     const int ERROR_NOT_MANAGED = 1;
