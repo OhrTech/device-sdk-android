@@ -72,6 +72,7 @@ class OhrUpdates internal constructor(private val sdk: OhrDeviceSdk) {
      * replaced, so it stops; Android starts it again if it was on screen.
      */
     @WorkerThread
+    @JvmOverloads
     fun install(whenIdle: Boolean = false) =
         agentCall { api.install(if (whenIdle) IOhrUpdates.WHEN_IDLE else IOhrUpdates.WHEN_NOW) }
 

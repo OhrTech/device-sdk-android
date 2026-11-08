@@ -59,6 +59,13 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "settings-hidden" -> for (key in listOf("apps.config", "apps.certificates", "apps.crash_reports", "usb.devices", "sdk.access")) {
+                                step("$key hidden") {
+                                    check(key !in sdk.settings.keys()) { "listed" }
+                                    val e = runCatching { sdk.settings.get(key) }.exceptionOrNull() ?: error("readable")
+                                    e.javaClass.simpleName
+                                }
+                            }
                             "certs" -> {
                                 step("issuing CA given") { check(sdk.certificates.canRequest()) { "the fleet gives no issuing CA" }; "yes" }
                                 step("request a certificate") {

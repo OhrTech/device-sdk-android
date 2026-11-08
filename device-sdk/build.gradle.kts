@@ -31,6 +31,8 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // Interface methods with bodies (OhrWifiView.Listener) are Java default methods: Java implements only what it needs.
+        freeCompilerArgs += "-Xjvm-default=all"
     }
 
     testOptions {

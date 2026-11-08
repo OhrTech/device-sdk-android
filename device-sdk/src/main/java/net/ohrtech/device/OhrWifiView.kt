@@ -38,7 +38,7 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
     }
 
     /** The look. Unset values follow the system's Material You colours, as Settings does. */
-    data class Theme(
+    data class Theme @JvmOverloads constructor(
         val dark: Boolean? = null,
         @ColorInt val accent: Int? = null,
         @ColorInt val background: Int? = null,
@@ -55,7 +55,7 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
     }
 
     /** What the screen offers (all on by default). */
-    data class Options(
+    data class Options @JvmOverloads constructor(
         val wifiSwitch: Boolean = true,
         val addNetwork: Boolean = true,
         val enterprise: Boolean = true,
