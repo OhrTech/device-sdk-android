@@ -55,6 +55,7 @@ class ChecksActivity : Activity() {
                             "push" -> push(sdk)
                             "unregister" -> step("unregister") { sdk.push.unregister(); check(sdk.push.token() == null) }
                             "config" -> config(sdk)
+                            "attestation" -> attestation(sdk)
                             "config-watch" -> step("config change arrives") {
                                 // One change of the managed configuration, within 90 s (the hub sends it).
                                 val changed = kotlinx.coroutines.runBlocking {
@@ -209,6 +210,22 @@ class ChecksActivity : Activity() {
         }
         step("token") { check(sdk.push.token()?.token == out.getJSONObject("token").getString("token")) }
         step("ohr.push hidden") { check(sdk.keys.list().none { it.alias.startsWith("ohr.") }) }
+    }
+
+    private fun attestation(sdk: OhrDeviceSdk) {
+        val challenge = (intent.getStringExtra("challenge") ?: "checks-attestation").toByteArray()
+        step("attest ec") {
+            val a = sdk.attestation.attest(challenge, net.ohrtech.device.OhrAttestation.Suite.EC)
+            out.put("ec", a.toJson())
+            "${a.ec.size} certificates, leaf ${a.ec[0].publicKey.algorithm}"
+        }
+        step("token ec") { sdk.attestation.token("https://example.test").also { out.put("tokenEc", it) }.length.toString() }
+        step("attest ec+ml-dsa-65") {
+            val a = sdk.attestation.attest(challenge, net.ohrtech.device.OhrAttestation.Suite.EC_MLDSA65)
+            out.put("hybrid", a.toJson())
+            "ec ${a.ec.size}, ml-dsa ${a.mlDsa65!!.size} certificates, leaf ${a.mlDsa65!![0].publicKey.algorithm}"
+        }
+        step("token ec+ml-dsa-65") { sdk.attestation.token("https://example.test").also { out.put("tokenHybrid", it) }.split('.').size.toString() + " parts" }
     }
 
     private fun config(sdk: OhrDeviceSdk) {
