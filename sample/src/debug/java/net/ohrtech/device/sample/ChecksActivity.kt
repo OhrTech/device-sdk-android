@@ -59,6 +59,26 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "certs" -> {
+                                step("issuing CA given") { check(sdk.certificates.canRequest()) { "the fleet gives no issuing CA" }; "yes" }
+                                step("request a certificate") {
+                                    val c = sdk.certificates.request("checks")
+                                    out.put("chain", JSONArray(c.chain.map { Base64.getEncoder().encodeToString(it.encoded) }))
+                                    "${c.paths.size} paths (${c.paths.joinToString { "${it.size}: ...${it.last().subjectX500Principal.name.substringAfter("CN=").substringBefore(',')}" }}), ${c.certificate.subjectX500Principal}"
+                                }
+                                step("list") { sdk.certificates.list().joinToString { "${it.alias}${if (it.imported) " (imported)" else ""}" } }
+                                step("tls context") { sdk.certificates.sslContext("checks").protocol }
+                                intent.getStringExtra("tlsUrl")?.let { url ->
+                                    step("mutual TLS") {
+                                        val c = java.net.URL(url).openConnection() as javax.net.ssl.HttpsURLConnection
+                                        c.sslSocketFactory = sdk.certificates.sslContext(intent.getStringExtra("tlsAlias") ?: "checks").socketFactory
+                                        c.connectTimeout = 10_000
+                                        c.readTimeout = 10_000
+                                        val body = c.inputStream.bufferedReader().readText()
+                                        "HTTP ${c.responseCode}, ${body.lines().firstOrNull { it.contains("Subject") || it.contains("CN=") }?.trim()?.take(120) ?: body.take(80)}"
+                                    }
+                                }
+                            }
                             "usb" -> step("approved USB devices") {
                                 val list = sdk.usb.devices()
                                 out.put("usb", JSONArray(list.map { JSONObject().put("name", it.name).put("deviceName", it.deviceName).put("vendorId", it.vendorId).put("productId", it.productId).put("hasPermission", it.hasPermission) }))

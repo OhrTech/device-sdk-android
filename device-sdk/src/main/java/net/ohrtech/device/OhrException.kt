@@ -30,6 +30,9 @@ sealed class OhrException(message: String) : Exception(message) {
     /** The Agent tried and it failed, or the Agent can't be reached. */
     class Failed(val reason: String) : OhrException(reason)
 
+    /** The hub refused a request it checks itself (a certificate: [reason] says why, such as no issuing CA). */
+    class Refused(val reason: String) : OhrException("The hub refused: $reason")
+
     internal companion object {
         private const val PREFIX = "ohr:"
 

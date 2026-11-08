@@ -83,6 +83,9 @@ class OhrDeviceSdk private constructor(
     /** The app's managed configuration ([OhrConfig] works without a connection too). */
     val config: OhrConfig by lazy { OhrConfig(context) }
 
+    /** The app's client certificates and trusted CAs (Agent 1061+). */
+    val certificates: OhrCertificates by lazy { OhrCertificates(this, context) }
+
     /** The USB devices the fleet pre-approves for the app (Agent 1061+). */
     val usb: OhrUsb by lazy { OhrUsb(this) }
 

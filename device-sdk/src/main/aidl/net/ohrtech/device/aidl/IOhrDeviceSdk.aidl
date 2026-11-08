@@ -60,6 +60,8 @@ interface IOhrDeviceSdk {
     const String AREA_DIAGNOSTICS = "diagnostics";
     /** VERSION 2. The USB devices the fleet pre-approves for the app (IOhrUsb); no grant needed. */
     const String AREA_USB = "usb";
+    /** VERSION 2. The app's client certificates and trusted CAs (IOhrCertificates); no grant needed. */
+    const String AREA_CERTIFICATES = "certificates";
 
     /** This Agent's VERSION. */
     int version() = 1;
