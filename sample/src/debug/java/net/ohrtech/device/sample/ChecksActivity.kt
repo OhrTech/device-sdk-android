@@ -59,6 +59,7 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "kiosk-stop" -> step("kiosk stop") { sdk.kiosk.stop(); sdk.kiosk.state().toString() }
                             // --es config <base64 JSON network>: join it, follow the state for --ei watch seconds (40), forget it.
                             "wifi-join" -> {
                                 val config = JSONObject(String(Base64.getDecoder().decode(intent.getStringExtra("config") ?: "")))
