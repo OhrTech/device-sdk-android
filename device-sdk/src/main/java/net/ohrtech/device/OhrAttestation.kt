@@ -53,6 +53,19 @@ class OhrAttestation {
     @JvmOverloads
     fun attest(challenge: ByteArray, suite: Suite = Suite.EC): Attestation {
         require(challenge.size in 1..128) { "the challenge is 1 to 128 bytes" }
+        return keystore { attestNow(challenge, suite) }
+    }
+
+    /** The Keystore's checked exceptions as [OhrException.Failed], so Java needn't catch Exception. */
+    private inline fun <T> keystore(block: () -> T): T = try {
+        block()
+    } catch (e: java.security.GeneralSecurityException) {
+        throw OhrException.Failed("the device's keystore: ${e.message}")
+    } catch (e: java.io.IOException) {
+        throw OhrException.Failed("the device's keystore: ${e.message}")
+    }
+
+    private fun attestNow(challenge: ByteArray, suite: Suite): Attestation {
         val ec = generate(EC_ALIAS, KeyProperties.KEY_ALGORITHM_EC, challenge) { setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1")).setDigests(KeyProperties.DIGEST_SHA256) }
         val pq = if (suite == Suite.EC_MLDSA65) generate(MLDSA_ALIAS, "ML-DSA-65", challenge) { this } else {
             runCatching { keyStore.deleteEntry(MLDSA_ALIAS) }
@@ -70,10 +83,12 @@ class OhrAttestation {
 
     /** The suite of the current attested key, or null before [attest]. */
     val suite: Suite?
-        get() = when {
-            !keyStore.containsAlias(EC_ALIAS) -> null
-            keyStore.containsAlias(MLDSA_ALIAS) -> Suite.EC_MLDSA65
-            else -> Suite.EC
+        get() = keystore {
+            when {
+                !keyStore.containsAlias(EC_ALIAS) -> null
+                keyStore.containsAlias(MLDSA_ALIAS) -> Suite.EC_MLDSA65
+                else -> Suite.EC
+            }
         }
 
     /**
@@ -87,6 +102,10 @@ class OhrAttestation {
     @JvmOverloads
     fun token(audience: String, ttlSeconds: Long = 300, nonce: String? = null): String {
         val s = suite ?: throw OhrException.Failed("attest() first: there is no attested key")
+        return keystore { tokenNow(s, audience, ttlSeconds, nonce) }
+    }
+
+    private fun tokenNow(s: Suite, audience: String, ttlSeconds: Long, nonce: String?): String {
         val now = System.currentTimeMillis() / 1000
         val header = JSONObject().put("typ", "ohr-attest").put("alg", if (s == Suite.EC) "ES256" else "ES256+ML-DSA-65")
         val payload = JSONObject().put("aud", audience).put("iat", now).put("exp", now + ttlSeconds).apply { nonce?.let { put("nonce", it) } }

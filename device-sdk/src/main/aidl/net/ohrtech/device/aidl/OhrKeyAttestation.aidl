@@ -2,7 +2,7 @@ package net.ohrtech.device.aidl;
 
 /**
  * Proof that a key was made in this device's TEE for this app. Verify it with the hub
- * (POST /v1/devices/{id}/key-attestations:verify), which knows each device's registered key.
+ * (POST /v1/devices/{id}/key-attestations/verify), which knows each device's registered key.
  */
 parcelable OhrKeyAttestation {
     /** ALG_* of IOhrKeys. */
