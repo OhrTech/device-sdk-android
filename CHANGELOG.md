@@ -17,6 +17,7 @@ Needs the OhrTech Agent 1061 or later for everything new.
   organisation's issuing CA; valid to its client root and to the OhrTech Device Identity Root), PKCS#12
   certificates and private CAs from the fleet, and `keyManager`, `trustManager`, `sslContext` for TLS.
 - `OhrException` is unchecked (`RuntimeException`): Java catches it without `throws`. New subclass `Refused`.
+- `session.app` is the app's `app_…` id, as the Management API and the portal name it.
 - For Java: `updates.install()`, `OhrWifiView.Theme` and `OhrWifiView.Options` take their defaults;
   `OhrWifiView.Listener` methods are default methods. `OhrAttestation` reports Keystore errors as
   `OhrException.Failed`.
