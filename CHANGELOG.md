@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-08)
 
-The first release. Needs the OhrTech Agent 1057 or later; keys and push need an OS with the OhrTech KEM app.
+The first release. Needs the OhrTech Agent 1059 or later; keys and push need an OS with the OhrTech KEM app (OhrTech OS 2026110702 or later).
 
 - `OhrDeviceSdk.connect` and the areas `device`, `updates`, `wifi`, `network`, `kiosk`, `power` and `settings`.
 - `OhrWifiView`: Android's Wi-Fi screen, embedded.

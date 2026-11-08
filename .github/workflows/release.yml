@@ -3,8 +3,8 @@ name: Release
 # Push a tag such as v0.1.0 to publish net.ohrtech:device-sdk:0.1.0 to Maven Central, through the
 # Central Portal (central.sonatype.com), where the net.ohrtech namespace is verified. Secrets, in the
 # "release" environment:
-#   CENTRAL_USERNAME, CENTRAL_PASSWORD   a Central Portal user token
-#   SIGNING_KEY, SIGNING_PASSWORD        the OhrTech release signing key (ASCII-armoured) and its passphrase
+#   MAVEN_UPLOAD                     a Central Portal user token, as username:password
+#   SIGNING_KEY, SIGNING_PASSWORD    the OhrTech release signing key (ASCII-armoured) and its passphrase
 on:
   push:
     tags: ['v*']
@@ -31,6 +31,16 @@ jobs:
       - name: Version from the tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
+      - name: The Central Portal token works, and this version isn't published yet
+        env:
+          MAVEN_UPLOAD: ${{ secrets.MAVEN_UPLOAD }}
+        run: |
+          auth="Authorization: Bearer $(printf '%s' "$MAVEN_UPLOAD" | base64 -w0)"
+          published=$(curl -fsS -H "$auth" \
+            "https://central.sonatype.com/api/v1/publisher/published?namespace=net.ohrtech&name=device-sdk&version=$VERSION" | jq -r .published)
+          echo "net.ohrtech:device-sdk:$VERSION published: $published"
+          test "$published" = false
+
       - name: Build, and test on JDK 25
         run: ./gradlew :device-sdk:assembleRelease :device-sdk:testReleaseUnitTest -PtestJdk="$JAVA_HOME_25_X64" -PsdkVersion="$VERSION"
 
@@ -46,10 +56,9 @@ jobs:
 
       - name: Upload to the Central Portal and wait until it is published
         env:
-          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_UPLOAD: ${{ secrets.MAVEN_UPLOAD }}
         run: |
-          auth="Authorization: Bearer $(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)"
+          auth="Authorization: Bearer $(printf '%s' "$MAVEN_UPLOAD" | base64 -w0)"
           id=$(curl -fsS -X POST -H "$auth" -F bundle=@bundle.zip \
             "https://central.sonatype.com/api/v1/publisher/upload?name=device-sdk-$VERSION&publishingType=AUTOMATIC")
           echo "deployment $id"
