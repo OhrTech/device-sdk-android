@@ -59,6 +59,24 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "diag" -> {
+                                step("events") {
+                                    sdk.diagnostics.event("checks_started", mapOf("run" to (intent.getStringExtra("run") ?: "1")))
+                                    sdk.diagnostics.event("printer_offline", mapOf("port" to 9100, "retries" to 3))
+                                    "2 events"
+                                }
+                                step("log lines") {
+                                    for (i in 1..20) sdk.diagnostics.i("Checks", "line $i of the checks' own log")
+                                    sdk.diagnostics.e("Checks", "an error line for the bundle")
+                                    android.util.Log.w("ChecksLogcat", "a logcat line for the bundle")
+                                    "21 lines"
+                                }
+                                step("bad event refused") {
+                                    runCatching { sdk.diagnostics.event("Bad Name") }.exceptionOrNull() as? IllegalArgumentException
+                                        ?: error("accepted a bad name")
+                                    "refused"
+                                }
+                            }
                             "kiosk-exit" -> step("request exit") { sdk.kiosk.requestExit(); "the keypad is up" }
                             "kiosk-hang" -> step("heartbeat, then hang") {
                                 // Beats every 750 ms, then the main thread stops for 30 s: the Agent stops the app after ~3 s.

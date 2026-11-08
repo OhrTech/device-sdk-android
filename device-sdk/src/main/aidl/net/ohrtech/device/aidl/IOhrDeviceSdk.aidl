@@ -56,6 +56,8 @@ interface IOhrDeviceSdk {
     const String AREA_SETTINGS = "settings";
     /** Embedded screens (IOhrScreens); each screen needs the area it changes ("wifi" for Wi-Fi). */
     const String AREA_SCREENS = "screens";
+    /** VERSION 2. The app's own events and log for the hub (IOhrDiagnostics); no grant needed. */
+    const String AREA_DIAGNOSTICS = "diagnostics";
 
     /** This Agent's VERSION. */
     int version() = 1;

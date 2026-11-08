@@ -83,6 +83,9 @@ class OhrDeviceSdk private constructor(
     /** The app's managed configuration ([OhrConfig] works without a connection too). */
     val config: OhrConfig by lazy { OhrConfig(context) }
 
+    /** The app's own events and log for the hub (Agent 1061+). */
+    val diagnostics: OhrDiagnostics by lazy { OhrDiagnostics(this) }
+
     /** Device attestation for the app's server ([OhrAttestation] works without a connection too). */
     val attestation: OhrAttestation by lazy { OhrAttestation() }
 
