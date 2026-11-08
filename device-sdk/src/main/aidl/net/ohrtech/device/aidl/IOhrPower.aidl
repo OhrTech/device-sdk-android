@@ -12,7 +12,7 @@ interface IOhrPower {
     void scheduleReboot(@nullable String schedule) = 3;
     /** The schedule, or null. */
     @nullable String rebootSchedule() = 4;
-    /** Seconds, one of the settings catalogue's display.timeout options. ERROR_FLEET_LOCKED. */
+    /** Seconds, 1 to 2147483 (Android keeps milliseconds in an int). ERROR_FLEET_LOCKED. */
     void setScreenTimeout(int seconds) = 5;
     /** 0-100. ERROR_FLEET_LOCKED. */
     void setBrightness(int percent) = 6;

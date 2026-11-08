@@ -88,9 +88,17 @@ class ChecksActivity : Activity() {
                                 identity?.let { id -> step("forget") { sdk.wifi.forget(id); id } }
                             }
                             "settings-values" -> {
-                                step("bad timeout refused") {
-                                    (runCatching { sdk.settings.set("display.timeout", 45) }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
-                                        ?: error("accepted 45")
+                                step("timeout 0 refused") {
+                                    (runCatching { sdk.settings.set("display.timeout", 0) }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
+                                        ?: error("accepted 0")
+                                }
+                                step("timeout 45 accepted") {
+                                    val before = sdk.settings.get("display.timeout").value
+                                    sdk.settings.set("display.timeout", 45)
+                                    val now = sdk.settings.get("display.timeout").value
+                                    before?.let { sdk.settings.set("display.timeout", it) }
+                                    check(now.toString() == "45") { "read back $now" }
+                                    "45 (back to $before)"
                                 }
                                 step("not a boolean refused") {
                                     (runCatching { sdk.settings.set("sound.vibration", "yes") }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason

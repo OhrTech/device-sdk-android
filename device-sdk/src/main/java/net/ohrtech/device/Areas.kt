@@ -254,7 +254,7 @@ class OhrPower internal constructor(private val sdk: OhrDeviceSdk) {
         Schedule(o.optString("time"), (0 until d.length()).map { i -> d.getInt(i) }.toSet(), o.optString("reason"))
     }
 
-    /** One of 15, 30, 60, 120, 300, 600, 1800 seconds. FleetLocked if the fleet locks it. */
+    /** Any whole number of seconds, 1 to 2147483 (Android's limit). FleetLocked if the fleet locks it. */
     @WorkerThread
     fun setScreenTimeout(seconds: Int) = agentCall { api.setScreenTimeout(seconds) }
     /** 0-100 (turns adaptive brightness off). FleetLocked if the fleet locks it. */
