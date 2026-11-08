@@ -6,9 +6,9 @@ import net.ohrtech.device.aidl.IOhrDeviceSdk
 
 /**
  * Why the OhrTech Agent refused or couldn't do what the app asked. Every Device SDK call throws
- * one of these subclasses, never a raw binder exception.
+ * one of these subclasses, never a raw binder exception. Unchecked, so Java can catch it as is.
  */
-sealed class OhrException(message: String) : Exception(message) {
+sealed class OhrException(message: String) : RuntimeException(message) {
     /** This app is not one the organisation installed on this device through OhrTech. */
     class NotManaged : OhrException("This app is not managed by OhrTech on this device")
 

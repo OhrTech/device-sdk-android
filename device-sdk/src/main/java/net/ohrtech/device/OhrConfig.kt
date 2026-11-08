@@ -46,7 +46,9 @@ class OhrConfig(context: Context) {
     fun string(key: String, fallback: String? = null): String? =
         values().getString(key) ?: declared(key)?.selectedString ?: fallback
 
+    /** From Java: `getInt(key)` (`int` is a Java keyword). */
     @JvmOverloads
+    @JvmName("getInt")
     fun int(key: String, fallback: Int = 0): Int {
         val v = values()
         return if (v.containsKey(key)) v.getInt(key) else declared(key)?.takeIf { it.type == RestrictionEntry.TYPE_INTEGER }?.intValue ?: fallback
