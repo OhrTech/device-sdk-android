@@ -87,6 +87,22 @@ class ChecksActivity : Activity() {
                                 }
                                 identity?.let { id -> step("forget") { sdk.wifi.forget(id); id } }
                             }
+                            "settings-values" -> {
+                                step("bad timeout refused") {
+                                    (runCatching { sdk.settings.set("display.timeout", 45) }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
+                                        ?: error("accepted 45")
+                                }
+                                step("not a boolean refused") {
+                                    (runCatching { sdk.settings.set("sound.vibration", "yes") }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
+                                        ?: error("accepted \"yes\"")
+                                }
+                                step("current timeout accepted") {
+                                    val now = sdk.settings.get("display.timeout").value
+                                    sdk.settings.set("display.timeout", now)
+                                    "display.timeout $now"
+                                }
+                                step("only the allowed keys") { sdk.settings.keys().size.toString() + " keys" }
+                            }
                             "settings-hidden" -> for (key in listOf("apps.config", "apps.certificates", "apps.crash_reports", "usb.devices", "sdk.access")) {
                                 step("$key hidden") {
                                     check(key !in sdk.settings.keys()) { "listed" }
