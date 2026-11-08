@@ -71,12 +71,14 @@ class ChecksActivity : Activity() {
                                 val seen = mutableListOf<String>()
                                 step("join $ssid") {
                                     val until = System.currentTimeMillis() + intent.getIntExtra("watch", 40) * 1000L
+                                    // The whole window: the SSID shows as the target before association, so seeing it
+                                    // proves nothing; whether EAP succeeded is the access point's to say.
                                     var joined = false
-                                    while (System.currentTimeMillis() < until && !joined) {
+                                    while (System.currentTimeMillis() < until) {
                                         val st = sdk.wifi.state()
                                         val now = st.state + ":" + (st.connected?.optString("ssid") ?: "-")
                                         if (seen.lastOrNull() != now) seen += now
-                                        joined = st.connected?.optString("ssid") == ssid
+                                        joined = joined || st.connected?.optString("ssid") == ssid
                                         Thread.sleep(500)
                                     }
                                     out.put("states", JSONArray(seen))
