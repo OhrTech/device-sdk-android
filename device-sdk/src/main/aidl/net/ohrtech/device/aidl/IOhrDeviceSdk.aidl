@@ -58,6 +58,8 @@ interface IOhrDeviceSdk {
     const String AREA_SCREENS = "screens";
     /** VERSION 2. The app's own events and log for the hub (IOhrDiagnostics); no grant needed. */
     const String AREA_DIAGNOSTICS = "diagnostics";
+    /** VERSION 2. The USB devices the fleet pre-approves for the app (IOhrUsb); no grant needed. */
+    const String AREA_USB = "usb";
 
     /** This Agent's VERSION. */
     int version() = 1;

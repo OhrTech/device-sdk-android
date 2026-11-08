@@ -59,6 +59,11 @@ class ChecksActivity : Activity() {
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
                             "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
                             "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
+                            "usb" -> step("approved USB devices") {
+                                val list = sdk.usb.devices()
+                                out.put("usb", JSONArray(list.map { JSONObject().put("name", it.name).put("deviceName", it.deviceName).put("vendorId", it.vendorId).put("productId", it.productId).put("hasPermission", it.hasPermission) }))
+                                "${list.size} attached"
+                            }
                             "diag" -> {
                                 step("events") {
                                     sdk.diagnostics.event("checks_started", mapOf("run" to (intent.getStringExtra("run") ?: "1")))
