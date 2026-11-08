@@ -80,6 +80,9 @@ class OhrDeviceSdk private constructor(
     val keys: OhrKeys by lazy { OhrKeys(this) }
     val push: OhrPush by lazy { OhrPush(this) }
 
+    /** The app's managed configuration ([OhrConfig] works without a connection too). */
+    val config: OhrConfig by lazy { OhrConfig(context) }
+
     /** Whether the Agent is still there; if not, connect again. */
     val isConnected: Boolean get() = !closed && service.asBinder().isBinderAlive
 

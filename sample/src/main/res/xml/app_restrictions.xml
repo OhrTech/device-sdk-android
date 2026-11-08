@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The sample's managed configuration: set per fleet or device in the OhrTech portal or API. -->
+<restrictions xmlns:android="http://schemas.android.com/apk/res/android">
+    <restriction android:key="greeting" android:restrictionType="string" android:title="Greeting"
+        android:description="@string/greeting_description" android:defaultValue="Hello from the sample" />
+    <restriction android:key="store_number" android:restrictionType="integer" android:title="Store number" android:defaultValue="0" />
+    <restriction android:key="kiosk_on_start" android:restrictionType="bool" android:title="Start in kiosk mode" android:defaultValue="false" />
+    <restriction android:key="mode" android:restrictionType="choice" android:title="Mode"
+        android:entries="@array/mode_labels" android:entryValues="@array/mode_values" android:defaultValue="customer" />
+    <restriction android:key="features" android:restrictionType="multi-select" android:title="Features"
+        android:entries="@array/feature_values" android:entryValues="@array/feature_values" />
+    <restriction android:key="api_key" android:restrictionType="hidden" android:title="API key" />
+    <restriction android:key="printer" android:restrictionType="bundle" android:title="Printer">
+        <restriction android:key="host" android:restrictionType="string" android:title="Host" />
+        <restriction android:key="port" android:restrictionType="integer" android:title="Port" android:defaultValue="9100" />
+    </restriction>
+    <restriction android:key="lanes" android:restrictionType="bundle_array" android:title="Lanes">
+        <restriction android:key="lane" android:restrictionType="bundle" android:title="Lane">
+            <restriction android:key="name" android:restrictionType="string" android:title="Name" />
+        </restriction>
+    </restriction>
+</restrictions>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="greeting_description">Shown at the top of the sample\'s page</string>
+    <string-array name="mode_labels"><item>Customer</item><item>Staff</item></string-array>
+    <string-array name="mode_values"><item>customer</item><item>staff</item></string-array>
+    <string-array name="feature_values"><item>scan</item><item>pay</item><item>print</item></string-array>
+</resources>

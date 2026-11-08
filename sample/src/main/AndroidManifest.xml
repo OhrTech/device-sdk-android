@@ -4,6 +4,9 @@
         android:label="OhrTech SDK sample"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
 
+        <!-- Managed configuration (OhrConfig): what the fleet may set for this app. -->
+        <meta-data android:name="android.content.APP_RESTRICTIONS" android:resource="@xml/app_restrictions" />
+
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

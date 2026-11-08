@@ -20,6 +20,7 @@ import net.ohrtech.device.keys.OhrPrivateKey
 import net.ohrtech.device.keys.OhrTechProvider
 import net.ohrtech.device.push.OhrPush
 import net.ohrtech.device.push.SenderKey
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -53,6 +54,15 @@ class ChecksActivity : Activity() {
                             "keys" -> keys(sdk)
                             "push" -> push(sdk)
                             "unregister" -> step("unregister") { sdk.push.unregister(); check(sdk.push.token() == null) }
+                            "config" -> config(sdk)
+                            "config-watch" -> step("config change arrives") {
+                                // One change of the managed configuration, within 90 s (the hub sends it).
+                                val changed = kotlinx.coroutines.runBlocking {
+                                    kotlinx.coroutines.withTimeoutOrNull(90_000) { sdk.config.changes.first() }
+                                } ?: error("no change within 90 s")
+                                out.put("values", bundleJson(changed))
+                                bundleJson(changed).toString()
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -199,6 +209,37 @@ class ChecksActivity : Activity() {
         }
         step("token") { check(sdk.push.token()?.token == out.getJSONObject("token").getString("token")) }
         step("ohr.push hidden") { check(sdk.keys.list().none { it.alias.startsWith("ohr.") }) }
+    }
+
+    private fun config(sdk: OhrDeviceSdk) {
+        val c = sdk.config
+        step("config values") {
+            val v = bundleJson(c.values())
+            out.put("values", v)
+            v.toString()
+        }
+        step("config getters") {
+            val g = JSONObject()
+                .put("greeting", c.string("greeting")).put("store_number", c.int("store_number"))
+                .put("kiosk_on_start", c.bool("kiosk_on_start")).put("mode", c.string("mode"))
+                .put("features", JSONArray(c.strings("features"))).put("api_key", c.string("api_key"))
+                .put("printer.port", c.bundle("printer")?.getInt("port", -1) ?: -1)
+                .put("lanes", JSONArray(c.bundles("lanes").map { it.getString("name") }))
+            out.put("getters", g)
+            g.toString()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun bundleJson(b: Bundle): JSONObject = JSONObject().also { o ->
+        for (k in b.keySet().sorted()) {
+            o.put(k, when (val v = b.get(k)) {
+                is Bundle -> bundleJson(v)
+                is Array<*> -> JSONArray(v.map { if (it is Bundle) bundleJson(it) else it })
+                null -> JSONObject.NULL
+                else -> v
+            })
+        }
     }
 
     override fun onDestroy() {
