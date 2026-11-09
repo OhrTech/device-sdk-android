@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-09)
 
 The areas are objects to call directly, over one connection to the Agent that the library keeps for
 the life of the process. Works with the OhrTech Agent 1059 or later, like 0.2.0.
