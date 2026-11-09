@@ -101,6 +101,8 @@ dependencies {
     // api: the public API returns Flow and has suspend functions.
     api("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.annotation:annotation:1.9.0")
+    // The application context at app start, so the areas need no setup call.
+    implementation("androidx.startup:startup-runtime:1.1.1")
     testImplementation("junit:junit:4.13.2")
     // The real org.json for JVM tests (android.jar's is stubs only).
     testImplementation("org.json:json:20240303")

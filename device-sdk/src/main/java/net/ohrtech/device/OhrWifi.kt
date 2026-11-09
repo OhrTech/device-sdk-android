@@ -1,8 +1,10 @@
 package net.ohrtech.device
 
+import android.os.IBinder
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.flow.Flow
 import net.ohrtech.device.aidl.IOhrDeviceSdk
+import net.ohrtech.device.aidl.IOhrListener
 import net.ohrtech.device.aidl.IOhrWifi
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,7 +20,7 @@ import java.util.concurrent.Executor
  * networks"); [WifiConfig] builds the common ones. Every type Android supports: open, OWE, WEP,
  * WPA/WPA2 (psk), WPA3 (sae), enterprise (eap: PEAP, TTLS, TLS, PWD, SIM, AKA), Passpoint.
  */
-class OhrWifi internal constructor(private val sdk: OhrDeviceSdk) {
+object OhrWifi {
     /** @property state "on", "off", "turningOn" or "turningOff"; [connected] the current network, or null. */
     data class State(val enabled: Boolean, val state: String, val connected: JSONObject?)
 
@@ -26,7 +28,7 @@ class OhrWifi internal constructor(private val sdk: OhrDeviceSdk) {
     data class Network(val key: String, val title: String, val ssid: String?, val security: List<String>, val level: Int,
                        val saved: Boolean, val connected: Boolean, val fleet: Boolean, val json: JSONObject)
 
-    private val api get() = IOhrWifi.Stub.asInterface(sdk.area(IOhrDeviceSdk.AREA_WIFI))
+    private val api get() = IOhrWifi.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_WIFI))
 
     private fun state(json: String) = JSONObject(json).let { State(it.optBoolean("enabled"), it.optString("state"), it.optJSONObject("connected")) }
 
@@ -36,41 +38,66 @@ class OhrWifi internal constructor(private val sdk: OhrDeviceSdk) {
             it.optInt("level", -1), it.optBoolean("saved"), it.optString("connected") == "connected", it.optBoolean("fleet"), it)
     }
 
+    @JvmStatic
     @WorkerThread
     fun state(): State = state(agentCall { api.state() })
+    @JvmStatic
     @WorkerThread
     fun networks(): List<Network> = networks(agentCall { api.networks() })
+    @JvmStatic
     @WorkerThread
     fun scan() = agentCall { api.scan() }
     /** Saved networks: {"ssid", "security", "fleet"} (or "passpoint"). */
+    @JvmStatic
     @WorkerThread
     fun saved(): List<JSONObject> = JSONArray(agentCall { api.saved() }).objects()
 
     /** Saves [config]; returns its identity ("ssid:…", "passpoint:…"). InvalidConfig names the field. */
+    @JvmStatic
     @WorkerThread
     fun save(config: JSONObject): String = agentCall { api.save(config.toString()) }
     /** Joins a network by its [Network.key] or a saved identity. */
+    @JvmStatic
     @WorkerThread
     fun connect(keyOrIdentity: String) = agentCall { api.connect(keyOrIdentity) }
     /** Saves, then joins. */
+    @JvmStatic
     @WorkerThread
     fun connect(config: JSONObject): String = agentCall { api.connectConfig(config.toString()) }
+    @JvmStatic
     @WorkerThread
     fun disconnect() = agentCall { api.disconnect() }
+    @JvmStatic
     @WorkerThread
     fun forget(identity: String) = agentCall { api.forget(identity) }
     /** FleetLocked when the fleet locks wifi.enabled. */
+    @JvmStatic
     @WorkerThread
     fun setEnabled(on: Boolean) = agentCall { api.setEnabled(on) }
     /** A Wi-Fi QR code the app scanned ("WIFI:…"): saves and joins it. */
+    @JvmStatic
     @WorkerThread
     fun connectQr(text: String): String = agentCall { api.connectQr(text) }
 
-    private val stateWatcher = Watcher({ api.watch(it) }, { api.unwatch(it) }) { c -> if (c.what == "state") state(c.json) else null }
-    private val networkWatcher = Watcher({ api.watch(it) }, { api.unwatch(it) }) { c -> if (c.what == "networks") networks(c.json) else null }
+    private fun watch(b: IBinder, l: IOhrListener) = IOhrWifi.Stub.asInterface(b).watch(l)
+    private fun unwatch(b: IBinder, l: IOhrListener) = IOhrWifi.Stub.asInterface(b).unwatch(l)
+    private val stateWatcher = Watcher(IOhrDeviceSdk.AREA_WIFI, ::watch, ::unwatch, current = { state() }) { c ->
+        if (c.what == "state") state(c.json) else null
+    }
+    private val networkWatcher = Watcher(IOhrDeviceSdk.AREA_WIFI, ::watch, ::unwatch, current = { networks() }) { c ->
+        if (c.what == "networks") networks(c.json) else null
+    }
+
+    @JvmStatic
     val stateChanges: Flow<State> get() = stateWatcher.flow
+
+    @JvmStatic
     val networkChanges: Flow<List<Network>> get() = networkWatcher.flow
+
+    @JvmStatic
     fun listenState(executor: Executor, listener: OhrListener<State>): Closeable = stateWatcher.listen(executor, listener)
+
+    @JvmStatic
     fun listenNetworks(executor: Executor, listener: OhrListener<List<Network>>): Closeable = networkWatcher.listen(executor, listener)
 }
 

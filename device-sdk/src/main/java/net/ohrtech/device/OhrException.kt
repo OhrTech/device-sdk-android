@@ -62,10 +62,22 @@ sealed class OhrException(message: String) : RuntimeException(message) {
 internal inline fun <T> agentCall(block: () -> T): T =
     try {
         block()
+    } catch (e: OhrException) {
+        throw e
     } catch (e: IllegalStateException) {
-        throw OhrException.from(e) ?: e
+        throw OhrException.from(e) ?: OhrException.Failed("The OhrTech Agent failed: ${e.message}")
     } catch (e: DeadObjectException) {
-        throw OhrException.Failed("The OhrTech Agent stopped; connect again")
+        // The library binds again by itself; the call may or may not have happened.
+        throw OhrException.Failed("The OhrTech Agent stopped during the call; try again")
     } catch (e: RemoteException) {
         throw OhrException.Failed("The OhrTech Agent can't be reached: $e")
+    } catch (e: IllegalArgumentException) {
+        throw OhrException.Failed("The OhrTech Agent refused: ${e.message}")
+    } catch (e: SecurityException) {
+        throw OhrException.Failed("The OhrTech Agent refused: ${e.message}")
     }
+
+/** An argument the library refuses before asking the Agent: [OhrException.InvalidConfig] ([field], [reason]). */
+internal inline fun checkArg(ok: Boolean, field: String, reason: () -> String) {
+    if (!ok) throw OhrException.InvalidConfig(field, reason())
+}

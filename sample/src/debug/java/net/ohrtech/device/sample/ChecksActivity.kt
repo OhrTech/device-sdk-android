@@ -10,7 +10,19 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.ohrtech.device.OhrAccess
+import net.ohrtech.device.OhrAttestation
+import net.ohrtech.device.OhrCertificates
+import net.ohrtech.device.OhrConfig
+import net.ohrtech.device.OhrDevice
 import net.ohrtech.device.OhrDeviceSdk
+import net.ohrtech.device.OhrDiagnostics
+import net.ohrtech.device.OhrKiosk
+import net.ohrtech.device.OhrNetwork
+import net.ohrtech.device.OhrPower
+import net.ohrtech.device.OhrSettings
+import net.ohrtech.device.OhrUsb
+import net.ohrtech.device.OhrWifi
 import net.ohrtech.device.OhrException
 import net.ohrtech.device.keys.OhrHpke
 import net.ohrtech.device.keys.OhrKem
@@ -47,26 +59,28 @@ class ChecksActivity : Activity() {
         scope.launch {
             withContext(Dispatchers.IO) {
                 try {
-                    OhrDeviceSdk.connectBlocking(this@ChecksActivity).use { sdk ->
-                        out.put("session", JSONObject().put("app", sdk.session.app).put("package", sdk.session.packageName)
-                            .put("agent", sdk.session.agentVersion).put("deviceId", sdk.device.info().deviceId))
+                    if (check == "main-thread") mainThread() else run {
+                        OhrDeviceSdk.connectBlocking()
+                        val access = OhrAccess.info()
+                        out.put("session", JSONObject().put("app", access.app).put("package", access.packageName)
+                            .put("agent", access.agentVersion).put("deviceId", OhrDevice.info().deviceId))
                         when (check) {
-                            "keys" -> keys(sdk)
-                            "push" -> push(sdk)
-                            "unregister" -> step("unregister") { sdk.push.unregister(); check(sdk.push.token() == null) }
-                            "config" -> config(sdk)
-                            "attestation" -> attestation(sdk)
+                            "keys" -> keys(access)
+                            "push" -> push()
+                            "unregister" -> step("unregister") { OhrPush.unregister(); check(OhrPush.token() == null) }
+                            "config" -> config()
+                            "attestation" -> attestation()
                             // Kiosk mode and its watchdog (the Agent starts the app again after these).
-                            "kiosk-start" -> step("kiosk start") { sdk.kiosk.start(this@ChecksActivity); sdk.kiosk.state().toString() }
-                            "kiosk-state" -> step("kiosk state") { sdk.kiosk.state().toString() }
-                            "kiosk-stop" -> step("kiosk stop") { sdk.kiosk.stop(); sdk.kiosk.state().toString() }
+                            "kiosk-start" -> step("kiosk start") { OhrKiosk.start(this@ChecksActivity); OhrKiosk.state().toString() }
+                            "kiosk-state" -> step("kiosk state") { OhrKiosk.state().toString() }
+                            "kiosk-stop" -> step("kiosk stop") { OhrKiosk.stop(); OhrKiosk.state().toString() }
                             // --es config <base64 JSON network>: join it, follow the state for --ei watch seconds (40), forget it.
                             "wifi-join" -> {
                                 val config = JSONObject(String(Base64.getDecoder().decode(intent.getStringExtra("config") ?: "")))
                                 val ssid = config.optString("ssid")
                                 var identity: String? = null
                                 step("connect ${config.optString("security")}/${config.optJSONObject("eap")?.optString("method")}") {
-                                    identity = sdk.wifi.connect(config)
+                                    identity = OhrWifi.connect(config)
                                     identity!!
                                 }
                                 val seen = mutableListOf<String>()
@@ -76,7 +90,7 @@ class ChecksActivity : Activity() {
                                     // proves nothing; whether EAP succeeded is the access point's to say.
                                     var joined = false
                                     while (System.currentTimeMillis() < until) {
-                                        val st = sdk.wifi.state()
+                                        val st = OhrWifi.state()
                                         val now = st.state + ":" + (st.connected?.optString("ssid") ?: "-")
                                         if (seen.lastOrNull() != now) seen += now
                                         joined = joined || st.connected?.optString("ssid") == ssid
@@ -86,52 +100,52 @@ class ChecksActivity : Activity() {
                                     check(joined) { "never on $ssid: ${seen.joinToString(" > ")}" }
                                     seen.joinToString(" > ")
                                 }
-                                identity?.let { id -> step("forget") { sdk.wifi.forget(id); id } }
+                                identity?.let { id -> step("forget") { OhrWifi.forget(id); id } }
                             }
                             "settings-values" -> {
                                 step("timeout 0 refused") {
-                                    (runCatching { sdk.settings.set("display.timeout", 0) }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
+                                    (runCatching { OhrSettings.set("display.timeout", 0) }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
                                         ?: error("accepted 0")
                                 }
                                 step("timeout 45 accepted") {
-                                    val before = sdk.settings.get("display.timeout").value
-                                    sdk.settings.set("display.timeout", 45)
-                                    val now = sdk.settings.get("display.timeout").value
-                                    before?.let { sdk.settings.set("display.timeout", it) }
+                                    val before = OhrSettings.get("display.timeout").value
+                                    OhrSettings.set("display.timeout", 45)
+                                    val now = OhrSettings.get("display.timeout").value
+                                    before?.let { OhrSettings.set("display.timeout", it) }
                                     check(now.toString() == "45") { "read back $now" }
                                     "45 (back to $before)"
                                 }
                                 step("not a boolean refused") {
-                                    (runCatching { sdk.settings.set("sound.vibration", "yes") }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
+                                    (runCatching { OhrSettings.set("sound.vibration", "yes") }.exceptionOrNull() as? OhrException.InvalidConfig)?.reason
                                         ?: error("accepted \"yes\"")
                                 }
                                 step("current timeout accepted") {
-                                    val now = sdk.settings.get("display.timeout").value
-                                    sdk.settings.set("display.timeout", now)
+                                    val now = OhrSettings.get("display.timeout").value
+                                    OhrSettings.set("display.timeout", now)
                                     "display.timeout $now"
                                 }
-                                step("only the allowed keys") { sdk.settings.keys().size.toString() + " keys" }
+                                step("only the allowed keys") { OhrSettings.keys().size.toString() + " keys" }
                             }
                             "settings-hidden" -> for (key in listOf("apps.config", "apps.certificates", "apps.crash_reports", "usb.devices", "sdk.access")) {
                                 step("$key hidden") {
-                                    check(key !in sdk.settings.keys()) { "listed" }
-                                    val e = runCatching { sdk.settings.get(key) }.exceptionOrNull() ?: error("readable")
+                                    check(key !in OhrSettings.keys()) { "listed" }
+                                    val e = runCatching { OhrSettings.get(key) }.exceptionOrNull() ?: error("readable")
                                     e.javaClass.simpleName
                                 }
                             }
                             "certs" -> {
-                                step("issuing CA given") { check(sdk.certificates.canRequest()) { "the fleet gives no issuing CA" }; "yes" }
+                                step("issuing CA given") { check(OhrCertificates.canRequest()) { "the fleet gives no issuing CA" }; "yes" }
                                 step("request a certificate") {
-                                    val c = sdk.certificates.request("checks")
+                                    val c = OhrCertificates.request("checks")
                                     out.put("chain", JSONArray(c.chain.map { Base64.getEncoder().encodeToString(it.encoded) }))
                                     "${c.paths.size} paths (${c.paths.joinToString { "${it.size}: ...${it.last().subjectX500Principal.name.substringAfter("CN=").substringBefore(',')}" }}), ${c.certificate.subjectX500Principal}"
                                 }
-                                step("list") { sdk.certificates.list().joinToString { "${it.alias}${if (it.imported) " (imported)" else ""}" } }
-                                step("tls context") { sdk.certificates.sslContext("checks").protocol }
+                                step("list") { OhrCertificates.list().joinToString { "${it.alias}${if (it.imported) " (imported)" else ""}" } }
+                                step("tls context") { OhrCertificates.sslContext("checks").protocol }
                                 intent.getStringExtra("tlsUrl")?.let { url ->
                                     step("mutual TLS") {
                                         val c = java.net.URL(url).openConnection() as javax.net.ssl.HttpsURLConnection
-                                        c.sslSocketFactory = sdk.certificates.sslContext(intent.getStringExtra("tlsAlias") ?: "checks").socketFactory
+                                        c.sslSocketFactory = OhrCertificates.sslContext(intent.getStringExtra("tlsAlias") ?: "checks").socketFactory
                                         c.connectTimeout = 10_000
                                         c.readTimeout = 10_000
                                         val body = c.inputStream.bufferedReader().readText()
@@ -140,32 +154,31 @@ class ChecksActivity : Activity() {
                                 }
                             }
                             "usb" -> step("approved USB devices") {
-                                val list = sdk.usb.devices()
+                                val list = OhrUsb.devices()
                                 out.put("usb", JSONArray(list.map { JSONObject().put("name", it.name).put("deviceName", it.deviceName).put("vendorId", it.vendorId).put("productId", it.productId).put("hasPermission", it.hasPermission) }))
                                 "${list.size} attached"
                             }
                             "diag" -> {
                                 step("events") {
-                                    sdk.diagnostics.event("checks_started", mapOf("run" to (intent.getStringExtra("run") ?: "1")))
-                                    sdk.diagnostics.event("printer_offline", mapOf("port" to 9100, "retries" to 3))
+                                    OhrDiagnostics.event("checks_started", mapOf("run" to (intent.getStringExtra("run") ?: "1")))
+                                    OhrDiagnostics.event("printer_offline", mapOf("port" to 9100, "retries" to 3))
                                     "2 events"
                                 }
                                 step("log lines") {
-                                    for (i in 1..20) sdk.diagnostics.i("Checks", "line $i of the checks' own log")
-                                    sdk.diagnostics.e("Checks", "an error line for the bundle")
+                                    for (i in 1..20) OhrDiagnostics.i("Checks", "line $i of the checks' own log")
+                                    OhrDiagnostics.e("Checks", "an error line for the bundle")
                                     android.util.Log.w("ChecksLogcat", "a logcat line for the bundle")
                                     "21 lines"
                                 }
                                 step("bad event refused") {
-                                    runCatching { sdk.diagnostics.event("Bad Name") }.exceptionOrNull() as? IllegalArgumentException
+                                    (runCatching { OhrDiagnostics.event("Bad Name") }.exceptionOrNull() as? OhrException.InvalidConfig)?.field
                                         ?: error("accepted a bad name")
-                                    "refused"
                                 }
                             }
-                            "kiosk-exit" -> step("request exit") { sdk.kiosk.requestExit(); "the keypad is up" }
+                            "kiosk-exit" -> step("request exit") { OhrKiosk.requestExit(); "the keypad is up" }
                             "kiosk-hang" -> step("heartbeat, then hang") {
                                 // Beats every 750 ms, then the main thread stops for 30 s: the Agent stops the app after ~3 s.
-                                sdk.kiosk.heartbeat(3000)
+                                OhrKiosk.heartbeat(3000)
                                 Thread.sleep(2000)
                                 runOnUiThread { Thread.sleep(30_000) }
                                 Thread.sleep(30_000)
@@ -182,10 +195,11 @@ class ChecksActivity : Activity() {
                                 runOnUiThread { Thread.sleep(120_000) }
                                 Thread.sleep(120_000)
                             }
+                            "reconnect" -> reconnect()
                             "config-watch" -> step("config change arrives") {
                                 // One change of the managed configuration, within 90 s (the hub sends it).
                                 val changed = kotlinx.coroutines.runBlocking {
-                                    kotlinx.coroutines.withTimeoutOrNull(90_000) { sdk.config.changes.first() }
+                                    kotlinx.coroutines.withTimeoutOrNull(90_000) { OhrConfig.changes.first() }
                                 } ?: error("no change within 90 s")
                                 out.put("values", bundleJson(changed))
                                 bundleJson(changed).toString()
@@ -202,6 +216,67 @@ class ChecksActivity : Activity() {
             Log.i(TAG, summary)
             text.text = summary
         }
+    }
+
+    /**
+     * The first call of a fresh process made on the main thread: it binds the Agent and answers,
+     * with no deadlock (the binding is answered on the library's own thread). Start the app after
+     * `am force-stop` so nothing is connected yet.
+     */
+    private fun mainThread() {
+        step("first call on the main thread") {
+            check(OhrDeviceSdk.connection.value == OhrDeviceSdk.Connection.NOT_CONNECTED) { "already ${OhrDeviceSdk.connection.value}" }
+            val answer = java.util.concurrent.atomic.AtomicReference<Any>()
+            val done = java.util.concurrent.CountDownLatch(1)
+            val started = System.currentTimeMillis()
+            runOnUiThread {
+                answer.set(runCatching { OhrDevice.info().deviceId }.getOrElse { it })
+                done.countDown()
+            }
+            check(done.await(15, java.util.concurrent.TimeUnit.SECONDS)) { "the main thread never came back" }
+            val a = answer.get()
+            if (a is Throwable) throw a
+            "$a in ${System.currentTimeMillis() - started} ms, ${OhrDeviceSdk.connection.value}"
+        }
+    }
+
+    /**
+     * Subscriptions outlive the Agent: watches battery, network and kiosk mode, then waits (--ei wait seconds, 120)
+     * for the Agent to stop and come back (the harness kills it after "CHECK READY reconnect"). Passes when the
+     * connection went RECONNECTING then CONNECTED, each subscription heard from the Agent again, and a call works.
+     */
+    private fun reconnect() {
+        val states = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val heard = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        val backAt = java.util.concurrent.atomic.AtomicLong()
+        val scope = CoroutineScope(Job() + Dispatchers.IO)
+        scope.launch {
+            OhrDeviceSdk.connection.collect { c ->
+                states += c.name
+                if (c == OhrDeviceSdk.Connection.CONNECTED && states.contains("RECONNECTING")) backAt.set(System.currentTimeMillis())
+            }
+        }
+        fun after(name: String) {
+            if (backAt.get() > 0) heard.merge(name, 1, Int::plus)
+        }
+        scope.launch { OhrPower.batteryChanges.collect { after("battery") } }
+        scope.launch { OhrNetwork.changes.collect { after("network") } }
+        val kiosk = OhrKiosk.listenMode({ it.run() }) { after("kiosk") }
+        Thread.sleep(1000)
+        Log.i(TAG, "CHECK READY reconnect")
+        val until = System.currentTimeMillis() + intent.getIntExtra("wait", 120) * 1000L
+        while (System.currentTimeMillis() < until && !(backAt.get() > 0 && heard.keys.containsAll(listOf("battery", "network", "kiosk")))) Thread.sleep(250)
+        step("agent stopped and came back") {
+            check("RECONNECTING" in states && backAt.get() > 0) { "states ${states.joinToString(" > ")}" }
+            states.joinToString(" > ")
+        }
+        step("subscriptions heard again") {
+            for (n in listOf("battery", "network", "kiosk")) check((heard[n] ?: 0) > 0) { "nothing from $n after the Agent came back: $heard" }
+            heard.toString()
+        }
+        step("calls after") { OhrDevice.info().deviceId }
+        kiosk.close()
+        scope.cancel()
     }
 
     private fun pass(name: String, detail: String = "") {
@@ -233,8 +308,8 @@ class ChecksActivity : Activity() {
 
     private fun b64(b: ByteArray) = Base64.getEncoder().encodeToString(b)
 
-    private fun keys(sdk: OhrDeviceSdk) {
-        val keys = sdk.keys
+    private fun keys(access: OhrAccess.Info) {
+        val keys = OhrKeys
         step("available") { check(keys.isAvailable()) }
         val pubs = HashMap<OhrKeys.Algorithm, ByteArray>()
         for (alg in OhrKeys.Algorithm.entries) step("generate ${alg.standardName}") {
@@ -279,7 +354,7 @@ class ChecksActivity : Activity() {
             "${s.ct.size} byte ciphertext"
         }
         step("jca") {
-            OhrTechProvider.install(sdk)
+            OhrTechProvider.install()
             val kpg = KeyPairGenerator.getInstance("X-Wing", OhrTechProvider.NAME)
             kpg.initialize(OhrKeyGenParameterSpec("t.jca"))
             val pair = kpg.generateKeyPair()
@@ -299,7 +374,8 @@ class ChecksActivity : Activity() {
             val challenge = "checks-${alg.standardName}".toByteArray()
             val a = keys.attest("t.${alg.name.lowercase()}", challenge)
             check(a.algorithm == alg && a.publicKey.contentEquals(pubs.getValue(alg)))
-            check(a.owner == "app:${sdk.session.app}:${sdk.session.packageName}") { "owner ${a.owner}" }
+            // The TEE names the app by the Agent's UUID for it (signed as is), not the public app_… id.
+            check(Regex("^app:[0-9a-f-]{36}:").containsMatchIn(a.owner) && a.owner.endsWith(":${access.packageName}")) { "owner ${a.owner}" }
             attestations.put(JSONObject().put("alias", "t.${alg.name.lowercase()}").put("algorithm", alg.standardName)
                 .put("publicKey", b64(a.publicKey)).put("owner", a.owner).put("challenge", b64(challenge))
                 .put("coseSign1", b64(a.coseSign1)).put("diceChain", b64(a.diceChain)))
@@ -324,38 +400,38 @@ class ChecksActivity : Activity() {
         }
     }
 
-    private fun push(sdk: OhrDeviceSdk) {
+    private fun push() {
         val key = intent.getStringExtra("senderKey") ?: return fail("push", IllegalArgumentException("--es senderKey <b64>"))
         val pq = intent.getStringExtra("senderMlDsa65")
         val suite = OhrPush.Suite.named(intent.getStringExtra("suite") ?: "x25519")!!
         step("register ${suite.wireName}") {
-            val t = sdk.push.register(listOf(SenderKey.fromBase64(key, pq)), suite)
+            val t = OhrPush.register(listOf(SenderKey.fromBase64(key, pq)), suite)
             check(t.suite == suite && t.token.startsWith("psh_"))
             out.put("token", JSONObject().put("token", t.token).put("suite", t.suite.wireName).put("publicKey", t.publicKeyBase64))
             t.token
         }
-        step("token") { check(sdk.push.token()?.token == out.getJSONObject("token").getString("token")) }
-        step("ohr.push hidden") { check(sdk.keys.list().none { it.alias.startsWith("ohr.") }) }
+        step("token") { check(OhrPush.token()?.token == out.getJSONObject("token").getString("token")) }
+        step("ohr.push hidden") { check(OhrKeys.list().none { it.alias.startsWith("ohr.") }) }
     }
 
-    private fun attestation(sdk: OhrDeviceSdk) {
+    private fun attestation() {
         val challenge = (intent.getStringExtra("challenge") ?: "checks-attestation").toByteArray()
         step("attest ec") {
-            val a = sdk.attestation.attest(challenge, net.ohrtech.device.OhrAttestation.Suite.EC)
+            val a = OhrAttestation.attest(challenge, OhrAttestation.Suite.EC)
             out.put("ec", a.toJson())
             "${a.ec.size} certificates, leaf ${a.ec[0].publicKey.algorithm}"
         }
-        step("token ec") { sdk.attestation.token("https://example.test").also { out.put("tokenEc", it) }.length.toString() }
+        step("token ec") { OhrAttestation.token("https://example.test").also { out.put("tokenEc", it) }.length.toString() }
         step("attest ec+ml-dsa-65") {
-            val a = sdk.attestation.attest(challenge, net.ohrtech.device.OhrAttestation.Suite.EC_MLDSA65)
+            val a = OhrAttestation.attest(challenge, OhrAttestation.Suite.EC_MLDSA65)
             out.put("hybrid", a.toJson())
             "ec ${a.ec.size}, ml-dsa ${a.mlDsa65!!.size} certificates, leaf ${a.mlDsa65!![0].publicKey.algorithm}"
         }
-        step("token ec+ml-dsa-65") { sdk.attestation.token("https://example.test").also { out.put("tokenHybrid", it) }.split('.').size.toString() + " parts" }
+        step("token ec+ml-dsa-65") { OhrAttestation.token("https://example.test").also { out.put("tokenHybrid", it) }.split('.').size.toString() + " parts" }
     }
 
-    private fun config(sdk: OhrDeviceSdk) {
-        val c = sdk.config
+    private fun config() {
+        val c = OhrConfig
         step("config values") {
             val v = bundleJson(c.values())
             out.put("values", v)

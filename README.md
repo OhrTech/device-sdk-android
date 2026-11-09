@@ -10,7 +10,7 @@ events and logs, and push from your own server, end to end.
 
 ```kotlin
 dependencies {
-    implementation("net.ohrtech:device-sdk:0.2.0")
+    implementation("net.ohrtech:device-sdk:0.3.0")
 }
 ```
 
@@ -26,35 +26,43 @@ the portal under the fleet's apps: `wifi`, `network`, `kiosk`, `power`, `setting
 `updates`, `keys`, `push`, `diagnostics`, `usb` and `certificates` are open to every managed app. Settings and networks the fleet locks
 stay locked (`FleetLocked`).
 
-## Connect
+## Use
 
 ```kotlin
-val sdk = OhrDeviceSdk.connect(context)          // suspends; OhrException if it can't
-val info = sdk.device.infoAsync()                // deviceId "dev_…", fleet, org, OS, Agent
-if (sdk.session.mayUse("kiosk")) sdk.kiosk.start(activity)
-sdk.close()
+val info = OhrDevice.infoAsync()                 // deviceId "dev_…", fleet, org, OS, Agent
+if (OhrAccess.mayUse("kiosk")) OhrKiosk.start(activity)
+OhrWifi.stateChanges.collect { state -> … }      // cancel the collection to stop
 ```
 
-From Java, `OhrDeviceSdk.connectBlocking(context)` and the plain methods, off the main thread
-(they are binder calls into the Agent). Changes come as a `Flow` (`sdk.wifi.stateChanges`) or, for
-Java, a listener on an `Executor` (`sdk.wifi.listenState(executor, listener)`; close it to stop).
+Each area is an object to call directly; there is nothing to connect or close. The library binds the
+Agent on the first call and keeps the binding for the life of the process; when the Agent stops (a
+crash, its own update) it binds again, and every subscription goes on. `OhrDeviceSdk.connection`
+says how it stands; `OhrDeviceSdk.connect()` connects up front, to know at app start whether the
+Device SDK is there. The application context comes from AndroidX App Startup; an app that removes
+the library's initializer calls `OhrDeviceSdk.init(context)`.
 
-| Area | |
+Calls are binder calls into the Agent: make them off the main thread (the `…Async` versions do that
+themselves; a first call on the main thread works too, without deadlock). From Java, the same
+objects have static methods (`OhrWifi.state()`), and changes come to a listener on an `Executor`
+(`OhrWifi.listenState(executor, listener)`; close it to stop). `OhrAccess.info()` says who the Agent
+takes the app for and which areas it may use, asked each time.
+
+| Object | |
 |---|---|
-| `device` | `info()`: device id, serial, fleet, org, OS version and patch, Agent version, online |
-| `updates` | `available()`, `install(whenIdle)`, `changes`: the app's own updates the hub offers |
-| `wifi` | state, networks around, saved networks, `save`, `connect`, `forget`, `setEnabled`, `connectQr` |
-| `network` | `state()`, `setMobileData`, `setAirplaneMode`, `setDataRoaming` |
-| `kiosk` | `start(activity, features)`, `stop()`, `state()`: lock task as the system |
-| `power` | `battery()`, `reboot`, `scheduleReboot`, `setScreenTimeout`, `setBrightness` |
-| `settings` | `keys()`, `get(key)`, `set(key, value)`: the device settings apps may change, checked as the catalogue says |
-| `config` | the app's managed configuration, as its fleet or device sets it |
-| `attestation` | `attest(challenge)`, `token(audience)`: proof for your server of this app on this device |
-| `certificates` | client certificates made on the device or imported, trusted CAs, `sslContext()` |
-| `usb` | the USB devices the fleet pre-approves for the app: no permission prompt |
-| `diagnostics` | the app's own events and log lines for the hub; crashes are reported without it |
-| `keys` | TEE KEM keys: see below |
-| `push` | end-to-end push: see below |
+| `OhrDevice` | `info()`: device id, serial, fleet, org, OS version and patch, Agent version, online |
+| `OhrUpdates` | `available()`, `install(whenIdle)`, `changes`: the app's own updates the hub offers |
+| `OhrWifi` | state, networks around, saved networks, `save`, `connect`, `forget`, `setEnabled`, `connectQr` |
+| `OhrNetwork` | `state()`, `setMobileData`, `setAirplaneMode`, `setDataRoaming` |
+| `OhrKiosk` | `start(activity, features)`, `stop()`, `state()`: lock task as the system; `heartbeat()` or `beat()` for the watchdog |
+| `OhrPower` | `battery()`, `reboot`, `scheduleReboot`, `setScreenTimeout`, `setBrightness` |
+| `OhrSettings` | `keys()`, `get(key)`, `set(key, value)`: the device settings apps may change, checked as the catalogue says |
+| `OhrConfig` | the app's managed configuration, as its fleet or device sets it |
+| `OhrAttestation` | `attest(challenge)`, `token(audience)`: proof for your server of this app on this device |
+| `OhrCertificates` | client certificates made on the device or imported, trusted CAs, `sslContext()` |
+| `OhrUsb` | the USB devices the fleet pre-approves for the app: no permission prompt |
+| `OhrDiagnostics` | the app's own events and log lines for the hub; crashes are reported without it |
+| `OhrKeys` | TEE KEM keys: see below |
+| `OhrPush` | end-to-end push: see below |
 
 ## The Wi-Fi screen
 
@@ -64,9 +72,9 @@ Java, a listener on an `Executor` (`sdk.wifi.listenState(executor, listener)`; c
     android:layout_width="match_parent"
     android:layout_height="match_parent" />
 ```
-```kotlin
-findViewById<OhrWifiView>(R.id.wifi).attach(sdk)
-```
+
+It opens once it is laid out (set its `listener` and `options` in `onCreate`), and again when it is
+attached again or the Agent was restarted.
 
 Android Settings' Wi-Fi screen, drawn by the Agent inside your layout: every network type Android
 supports, saved networks, forgetting. It opens no other window, so a kiosk app stays a kiosk.
@@ -78,14 +86,14 @@ ML-KEM-768, ML-KEM-1024, X-Wing, and X25519 (for HPKE). The private keys never l
 device's TEE. Each app has its own, by alias.
 
 ```kotlin
-val pub = sdk.keys.generate("orders", OhrKeys.Algorithm.X_WING)
-val proof = sdk.keys.attest("orders", serverNonce)   // send to your server
-val secret = sdk.keys.decapsulate("orders", ciphertext)
+val pub = OhrKeys.generate("orders", OhrKeys.Algorithm.X_WING)
+val proof = OhrKeys.attest("orders", serverNonce)    // send to your server
+val secret = OhrKeys.decapsulate("orders", ciphertext)
 ```
 
 Your server checks `proof` with the Management API (`POST /v1/devices/{deviceId}/key-attestations/verify`):
 the key was made in this device's TEE, for this app. The same keys through the JCA:
-`OhrTechProvider.install(sdk)`, then `KeyPairGenerator.getInstance("ML-KEM-768", "OhrTech")`, the
+`OhrTechProvider.install()`, then `KeyPairGenerator.getInstance("ML-KEM-768", "OhrTech")`, the
 `"OhrTech"` KeyStore, `OhrKem` (shaped like `javax.crypto.KEM`) and `OhrHpke` (HPKE, the recipient).
 For signatures, use Android's own Keystore: its ML-DSA-65 and Ed25519 keys are TEE-backed too.
 
@@ -110,7 +118,7 @@ the default) and `xwing-mldsa65` (post-quantum, about 4.6 KB over).
    ```
 2. Register with your server's sender public keys, and send the token to your server:
    ```kotlin
-   val token = sdk.push.register(listOf(SenderKey.fromBase64(ED25519_PUBLIC_KEY)))
+   val token = OhrPush.register(listOf(SenderKey.fromBase64(ED25519_PUBLIC_KEY)))
    myServer.save(token.token, token.publicKeyBase64)
    ```
 3. Your server seals with the Management SDK (`PushSealer.Seal` in .NET) and sends it with
@@ -128,12 +136,12 @@ API. The portal shows a form from the app's own declaration; secrets (`hidden`) 
 reach the device.
 
 ```kotlin
-val store = sdk.config.int("store_number")          // the declared default when it isn't set
-val lanes = sdk.config.bundles("lanes")
-sdk.config.changes.collect { values -> reload(values) }
+val store = OhrConfig.int("store_number")           // the declared default when it isn't set
+val lanes = OhrConfig.bundles("lanes")
+OhrConfig.changes.collect { values -> reload(values) }
 ```
 
-`OhrConfig(context)` works without an Agent connection too. It is Android's own
+`OhrConfig` needs no Agent connection. It is Android's own
 `RestrictionsManager`, so code that already reads application restrictions works as it is.
 
 ## Device attestation
@@ -145,9 +153,9 @@ Attestation Root. The chain names the device (`dev_…`) and says which app made
 signer), the boot state and the patch levels.
 
 ```kotlin
-val attestation = sdk.attestation.attest(serverChallenge)            // or Suite.EC_MLDSA65
+val attestation = OhrAttestation.attest(serverChallenge)             // or Suite.EC_MLDSA65
 myServer.register(attestation.toJson())                              // once
-val token = sdk.attestation.token("https://api.example.com")         // each request, 5 minutes
+val token = OhrAttestation.token("https://api.example.com")          // each request, 5 minutes
 ```
 
 Two suites: `EC` (P-256), and `EC_MLDSA65`, post-quantum: an EC key and an ML-DSA-65 key, both

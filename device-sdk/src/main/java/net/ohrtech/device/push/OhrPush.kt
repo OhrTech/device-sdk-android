@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import net.ohrtech.device.OhrDeviceSdk
+import net.ohrtech.device.Agent
+import net.ohrtech.device.OhrException
+import net.ohrtech.device.checkArg
 import net.ohrtech.device.agentCall
 import net.ohrtech.device.aidl.IOhrDeviceSdk
 import net.ohrtech.device.aidl.IOhrPush
@@ -22,7 +24,7 @@ import java.util.Base64
  *    (`POST /v1/push`).
  * 3. Your [OhrPushService] gets the message, verified, opened, in date and not seen before.
  */
-class OhrPush internal constructor(private val sdk: OhrDeviceSdk) {
+object OhrPush {
 
     /** [X25519]: small (about 190 bytes over the data), the default. [XWING_MLDSA65]: post-quantum (about 4.6 KB over). */
     enum class Suite(internal val id: Int, val wireName: String, internal val encSize: Int) {
@@ -35,19 +37,20 @@ class OhrPush internal constructor(private val sdk: OhrDeviceSdk) {
         }
     }
 
-    private val api get() = IOhrPush.Stub.asInterface(sdk.area(IOhrDeviceSdk.AREA_PUSH))
-    private val store get() = PushStore(sdk.appContext)
+    private val api get() = IOhrPush.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_PUSH))
+    private val store get() = PushStore(Agent.context)
 
     /**
      * Makes the app's push key for [suite] in the TEE, has the hub verify it and issue a token, and
      * keeps [senderKeys] (your server's public keys; messages signed by none of them are dropped).
      * Registering again gives a new token and ends the old one. Waits for the hub (up to 30 s).
      */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun register(senderKeys: List<SenderKey>, suite: Suite = Suite.X25519): PushToken {
-        require(senderKeys.isNotEmpty()) { "at least one sender key" }
-        require(suite != Suite.XWING_MLDSA65 || senderKeys.any { it.mlDsa65 != null }) {
+        checkArg(senderKeys.isNotEmpty(), "senderKeys") { "at least one sender key" }
+        checkArg(suite != Suite.XWING_MLDSA65 || senderKeys.any { it.mlDsa65 != null }, "senderKeys") {
             "the xwing-mldsa65 suite needs a sender key with ML-DSA-65"
         }
         setSenderKeys(senderKeys)
@@ -58,16 +61,20 @@ class OhrPush internal constructor(private val sdk: OhrDeviceSdk) {
         withContext(Dispatchers.IO) { register(senderKeys, suite) }
 
     /** The current token, or null if the app isn't registered (or its token ended). */
+    @JvmStatic
     @WorkerThread
     fun token(): PushToken? = agentCall { api.token() }?.let { PushToken.parse(it) }
 
     /** Ends the token and deletes the push key. */
+    @JvmStatic
     @WorkerThread
     fun unregister() = agentCall { api.unregister() }
 
     /** Replaces the sender keys messages are checked against (e.g. when your server rotates them). */
+    @JvmStatic
     fun setSenderKeys(keys: List<SenderKey>) = store.setSenderKeys(keys)
 
+    @JvmStatic
     fun senderKeys(): List<SenderKey> = store.senderKeys()
 
     @WorkerThread
@@ -86,8 +93,8 @@ class SenderKey @JvmOverloads constructor(ed25519: ByteArray, mlDsa65: ByteArray
     val mlDsa65: ByteArray? = mlDsa65?.clone()
 
     init {
-        require(ed25519.size == 32) { "an Ed25519 public key is 32 bytes" }
-        require(mlDsa65 == null || mlDsa65.size == 1952) { "an ML-DSA-65 public key is 1,952 bytes" }
+        checkArg(ed25519.size == 32, "ed25519") { "an Ed25519 public key is 32 bytes" }
+        checkArg(mlDsa65 == null || mlDsa65.size == 1952, "mlDsa65") { "an ML-DSA-65 public key is 1,952 bytes" }
     }
 
     override fun equals(other: Any?) =
@@ -116,7 +123,7 @@ class PushToken(val token: String, val suite: OhrPush.Suite, publicKey: ByteArra
         fun parse(json: String): PushToken {
             val o = JSONObject(json)
             val suite = OhrPush.Suite.named(o.getString("suite"))
-                ?: throw IllegalStateException("unknown push suite ${o.getString("suite")}")
+                ?: throw OhrException.Unsupported("unknown push suite ${o.getString("suite")}")
             return PushToken(o.getString("token"), suite, Base64.getDecoder().decode(o.getString("publicKey")))
         }
     }

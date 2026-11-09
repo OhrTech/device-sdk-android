@@ -49,11 +49,11 @@ abstract class OhrPushService : Service() {
     open fun senderKeys(): List<SenderKey> = PushStore(this).senderKeys()
 
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "OhrPushService") }
-    private var sdk: OhrDeviceSdk? = null
 
-    private fun sdk(): OhrDeviceSdk = sdk?.takeIf { it.isConnected } ?: OhrDeviceSdk.connectBlocking(this).also {
-        sdk?.close()
-        sdk = it
+    override fun onCreate() {
+        super.onCreate()
+        // The app's own connection to the Agent serves the service too.
+        OhrDeviceSdk.init(this)
     }
 
     /** Only the Agent may call (the manifest's permission says so too). */
@@ -78,17 +78,14 @@ abstract class OhrPushService : Service() {
     override fun onBind(intent: Intent): IBinder? = if (intent.action == IOhrPush.ACTION_PUSH) receiver else null
 
     override fun onDestroy() {
-        worker.execute {
-            sdk?.close()
-            sdk = null
-        }
         worker.shutdown()
         super.onDestroy()
     }
 
     private fun deliver(pushId: String, token: String, envelope: ByteArray, priority: Int) {
-        val push = try {
-            sdk().push
+        val push = OhrPush
+        val registered = try {
+            push.token()
         } catch (e: OhrException) {
             // Delivered as far as the hub knows; without the Agent it can't be opened.
             Log.e(TAG, "Push $pushId: no OhrTech Agent to open it with", e)
@@ -96,7 +93,7 @@ abstract class OhrPushService : Service() {
         }
         val outcome = try {
             PushReceipt.check(
-                envelope, token, push.token(), senderKeys(),
+                envelope, token, registered, senderKeys(),
                 open = { enc, ct -> push.open(enc, ct) },
                 nowMs = System.currentTimeMillis(),
                 markSeen = { id, until, now -> PushStore(this).markSeen(id, until, now) },

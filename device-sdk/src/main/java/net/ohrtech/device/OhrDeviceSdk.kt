@@ -1,171 +1,106 @@
 package net.ohrtech.device
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.os.IBinder
-import android.os.Looper
 import androidx.annotation.WorkerThread
+import androidx.startup.Initializer
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import net.ohrtech.device.aidl.IOhrDeviceSdk
-import net.ohrtech.device.keys.OhrKeys
-import net.ohrtech.device.push.OhrPush
 import java.io.Closeable
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.Executor
 
 /**
- * The OhrTech Device SDK: what an app on an OhrTech device can ask the OhrTech Agent for.
+ * The OhrTech Device SDK: what an app on an OhrTech device can ask the OhrTech Agent for. Each area
+ * is an object to call directly: [OhrDevice], [OhrUpdates], [OhrWifi], [OhrNetwork], [OhrKiosk],
+ * [OhrPower], [OhrSettings], [OhrConfig], [OhrAttestation], [OhrCertificates], [OhrUsb],
+ * [OhrDiagnostics], [net.ohrtech.device.keys.OhrKeys], [net.ohrtech.device.push.OhrPush];
+ * [OhrAccess] says what the fleet lets the app do.
  *
  * ```
- * val sdk = OhrDeviceSdk.connect(context)        // Kotlin, suspends
- * val sdk = OhrDeviceSdk.connectBlocking(context) // Java, off the main thread
- * sdk.device.info().deviceId
+ * val info = OhrDevice.infoAsync()
+ * if (OhrAccess.mayUse("kiosk")) OhrKiosk.start(activity)
+ * OhrWifi.stateChanges.collect { … }
  * ```
- * Calls are binder calls into the Agent: make them off the main thread (the suspend versions do
- * that themselves). What the app may change is up to its fleet ([session]'s areas); reading is
- * mostly always allowed. Close the SDK when done; it reconnects only by connecting again.
+ * There is nothing to connect or close. The library binds the Agent on the first call and keeps
+ * the binding for the life of the process; when the Agent stops (a crash, its own update), it binds
+ * again and every subscription goes on. Calls are binder calls into the Agent: make them off the
+ * main thread (the suspend versions do that themselves).
  */
-class OhrDeviceSdk private constructor(
-    private val context: Context,
-    private val service: IOhrDeviceSdk,
-    private val connection: ServiceConnection,
-    /** Who the Agent takes this app for, and what the fleet lets it do. */
-    val session: Session,
-) : Closeable {
+object OhrDeviceSdk {
+    const val AGENT_PACKAGE = "net.ohrtech.agent"
+
+    /** The Device SDK interface version this library speaks. */
+    const val VERSION = IOhrDeviceSdk.VERSION
+
+    /** The library's connection to the Agent. */
+    enum class Connection {
+        /** Nothing has asked the Agent anything yet. */
+        NOT_CONNECTED,
+
+        /** Binding the Agent for the first time. */
+        CONNECTING,
+        CONNECTED,
+
+        /** The Agent stopped (a crash, its own update); calls wait for it to come back. */
+        RECONNECTING,
+
+        /** No OhrTech Agent with the Device SDK, or the hub didn't install this app. */
+        UNAVAILABLE,
+    }
 
     /**
-     * @property app the hub's id of this app; [packageName] this app's package; [appVersion] the
-     * hub's id of the installed version (null when it isn't one the hub shipped);
-     * [areas] what the app may use: always "device", "updates", "keys", "push", the reads
-     * ("wifi.read", ...), and each area the fleet grants ("wifi", "kiosk", ...).
+     * The application context. App Startup calls it at app start; call it yourself only if your
+     * app removes the library's initializer (`net.ohrtech.device.OhrDeviceSdkInitializer`).
      */
-    data class Session(
-        val app: String,
-        val packageName: String,
-        val appVersion: String?,
-        val areas: Set<String>,
-        val agentVersion: Long,
-        val agentInterface: Int,
-    ) {
-        /** Whether the fleet lets the app use (change) [area] now; reads of most areas are always allowed. */
-        fun mayUse(area: String) = area in areas
+    @JvmStatic
+    fun init(context: Context) = Agent.init(context)
+
+    /** Whether this device has an OhrTech Agent with the Device SDK. */
+    @JvmStatic
+    fun isAvailable(): Boolean =
+        Agent.context.packageManager.resolveService(
+            Intent(IOhrDeviceSdk.ACTION_BIND).setPackage(AGENT_PACKAGE), PackageManager.ResolveInfoFlags.of(0)) != null
+
+    /** The connection as it changes. */
+    @JvmStatic
+    val connection: StateFlow<Connection> = Agent.state.asStateFlow()
+
+    /** For Java: told of each change of [connection] on [executor]; close the returned [Closeable] to stop. */
+    @JvmStatic
+    fun listenConnection(executor: Executor, listener: OhrListener<Connection>): Closeable {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        scope.launch { connection.drop(1).collect { c -> executor.execute { listener.onChange(c) } } }
+        return Closeable { scope.cancel() }
     }
 
-    private val areaBinders = ConcurrentHashMap<String, IBinder>()
-
-    @Volatile
-    private var closed = false
-
-    internal fun area(name: String): IBinder {
-        if (closed) throw OhrException.Failed("This OhrDeviceSdk is closed; connect again")
-        areaBinders[name]?.takeIf { it.isBinderAlive }?.let { return it }
-        return agentCall { service.area(name) }.also { areaBinders[name] = it }
+    /**
+     * Connects now, waiting up to [timeoutMs], instead of on the first call: to know at app start
+     * whether the Device SDK is there. Throws [OhrException]: NotManaged if the hub didn't install
+     * this app, Unsupported if the device has no OhrTech Agent, Failed if it doesn't answer.
+     */
+    @JvmStatic
+    @JvmOverloads
+    @WorkerThread
+    fun connectBlocking(timeoutMs: Long = 10_000) {
+        Agent.service(timeoutMs)
+        Agent.accessNow()
     }
 
-    internal val appContext: Context get() = context
+    /** [connectBlocking], suspending. */
+    suspend fun connect(timeoutMs: Long = 10_000) = withContext(Dispatchers.IO) { connectBlocking(timeoutMs) }
+}
 
-    val device: OhrDevice by lazy { OhrDevice(this) }
-    val updates: OhrUpdates by lazy { OhrUpdates(this) }
-    val wifi: OhrWifi by lazy { OhrWifi(this) }
-    val network: OhrNetwork by lazy { OhrNetwork(this) }
-    val kiosk: OhrKiosk by lazy { OhrKiosk(this) }
-    val power: OhrPower by lazy { OhrPower(this) }
-    val settings: OhrSettings by lazy { OhrSettings(this) }
-    val keys: OhrKeys by lazy { OhrKeys(this) }
-    val push: OhrPush by lazy { OhrPush(this) }
-
-    /** The app's managed configuration ([OhrConfig] works without a connection too). */
-    val config: OhrConfig by lazy { OhrConfig(context) }
-
-    /** The app's client certificates and trusted CAs (Agent 1061+). */
-    val certificates: OhrCertificates by lazy { OhrCertificates(this, context) }
-
-    /** The USB devices the fleet pre-approves for the app (Agent 1061+). */
-    val usb: OhrUsb by lazy { OhrUsb(this) }
-
-    /** The app's own events and log for the hub (Agent 1061+). */
-    val diagnostics: OhrDiagnostics by lazy { OhrDiagnostics(this) }
-
-    /** Device attestation for the app's server ([OhrAttestation] works without a connection too). */
-    val attestation: OhrAttestation by lazy { OhrAttestation() }
-
-    /** Whether the Agent is still there; if not, connect again. */
-    val isConnected: Boolean get() = !closed && service.asBinder().isBinderAlive
-
-    override fun close() {
-        if (closed) return
-        closed = true
-        runCatching { context.unbindService(connection) }
-    }
-
-    companion object {
-        const val AGENT_PACKAGE = "net.ohrtech.agent"
-
-        /** The Device SDK interface version this library speaks. */
-        const val VERSION = IOhrDeviceSdk.VERSION
-
-        /** Whether this device has an OhrTech Agent with the Device SDK. */
-        @JvmStatic
-        fun isAvailable(context: Context): Boolean =
-            context.packageManager.resolveService(bindIntent(), PackageManager.ResolveInfoFlags.of(0)) != null
-
-        private fun bindIntent() = Intent(IOhrDeviceSdk.ACTION_BIND).setPackage(AGENT_PACKAGE)
-
-        /** Connects to the Agent (suspends until it answers). Throws [OhrException]. */
-        suspend fun connect(context: Context, timeoutMs: Long = 10_000): OhrDeviceSdk =
-            withContext(Dispatchers.IO) { connectBlocking(context, timeoutMs) }
-
-        /**
-         * Connects to the Agent, waiting up to [timeoutMs]. Not on the main thread (the binding
-         * is answered there). Throws [OhrException]: NotManaged if the hub didn't install this
-         * app, Unsupported if the device has no OhrTech Agent, Failed if it doesn't answer.
-         */
-        @JvmStatic
-        @JvmOverloads
-        @WorkerThread
-        fun connectBlocking(context: Context, timeoutMs: Long = 10_000): OhrDeviceSdk {
-            check(Looper.myLooper() != Looper.getMainLooper()) { "OhrDeviceSdk.connectBlocking can't run on the main thread" }
-            val app = context.applicationContext
-            val bound = AtomicReference<IBinder?>()
-            val latch = CountDownLatch(1)
-            val conn = object : ServiceConnection {
-                override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-                    bound.set(binder)
-                    latch.countDown()
-                }
-
-                override fun onServiceDisconnected(name: ComponentName) {}
-
-                override fun onNullBinding(name: ComponentName) = latch.countDown()
-            }
-            val ok = try {
-                app.bindService(bindIntent(), conn, Context.BIND_AUTO_CREATE)
-            } catch (e: SecurityException) {
-                false
-            }
-            if (!ok) {
-                runCatching { app.unbindService(conn) }
-                throw OhrException.Unsupported("This device has no OhrTech Agent with the Device SDK")
-            }
-            if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS) || bound.get() == null) {
-                runCatching { app.unbindService(conn) }
-                throw OhrException.Failed("The OhrTech Agent did not answer")
-            }
-            val service = IOhrDeviceSdk.Stub.asInterface(bound.get())
-            try {
-                val s = agentCall { service.hello(VERSION) }
-                return OhrDeviceSdk(app, service, conn, Session(PublicIds.app(s.app), s.packageName, s.appVersion,
-                    s.areas.toSet(), s.agentVersion, s.agentInterface))
-            } catch (e: Exception) {
-                runCatching { app.unbindService(conn) }
-                throw e
-            }
-        }
-    }
+/** Gives the library the application context at app start (AndroidX App Startup). */
+class OhrDeviceSdkInitializer : Initializer<Unit> {
+    override fun create(context: Context) = OhrDeviceSdk.init(context)
+    override fun dependencies(): List<Class<out Initializer<*>>> = emptyList()
 }

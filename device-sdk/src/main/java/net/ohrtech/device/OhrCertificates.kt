@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.security.keystore.KeyProtection
 import androidx.annotation.WorkerThread
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onStart
 import net.ohrtech.device.aidl.IOhrCertificates
 import net.ohrtech.device.aidl.IOhrDeviceSdk
 import net.ohrtech.device.aidl.IOhrListener
@@ -46,9 +47,9 @@ import javax.net.ssl.X509TrustManager
  * - **Imported**: PKCS#12 bundles the fleet gives the app, installed into the app's Keystore on first use.
  * - **Trusted CAs**: private CAs the fleet gives the app, besides the system's ([trustManager]).
  *
- * [sslContext] puts them together for TLS: `HttpsURLConnection.setSSLSocketFactory(sdk.certificates.sslContext().socketFactory)`.
+ * [sslContext] puts them together for TLS: `HttpsURLConnection.setSSLSocketFactory(OhrCertificates.sslContext().socketFactory)`.
  */
-class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, context: Context) {
+object OhrCertificates {
     /**
      * A client certificate: [alias] as the app names it; [imported] from the fleet's PKCS#12.
      *
@@ -62,20 +63,17 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
         val certificate: X509Certificate get() = paths[0][0]
     }
 
-    private val api get() = IOhrCertificates.Stub.asInterface(sdk.area(IOhrDeviceSdk.AREA_CERTIFICATES))
-    private val prefs = context.applicationContext.getSharedPreferences("net.ohrtech.device.certificates", Context.MODE_PRIVATE)
+    private val api get() = IOhrCertificates.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_CERTIFICATES))
+    private val prefs get() = Agent.context.getSharedPreferences("net.ohrtech.device.certificates", Context.MODE_PRIVATE)
     private val keyStore: KeyStore get() = KeyStore.getInstance(STORE).apply { load(null) }
-
-    private fun needsVersion2() {
-        if (sdk.session.agentInterface < 2) throw OhrException.Unsupported("This OhrTech Agent is too old for it", needsAgent = 1061)
-    }
 
     private fun config(): JSONObject = JSONObject(agentCall { api.config() })
 
     /** Whether the fleet gives this app an issuing CA, so [request] can work. */
+    @JvmStatic
     @WorkerThread
     fun canRequest(): Boolean {
-        needsVersion2()
+        Agent.needsVersion2()
         return config().optBoolean("issuingCa")
     }
 
@@ -84,11 +82,24 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
      * made in the TEE and attested; the hub certifies it only if the attestation holds (this device, this app, a
      * verified OhrTech boot). Takes a few seconds; [timeoutMs] for the hub's answer.
      */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun request(alias: String, timeoutMs: Long = 60_000): Certificate {
-        needsVersion2()
-        require(Regex("^[A-Za-z0-9._-]{1,64}$").matches(alias)) { "an alias is 1 to 64 of A-Z a-z 0-9 . _ -" }
+        Agent.needsVersion2()
+        checkArg(ALIAS.matches(alias), "alias") { "1 to 64 of A-Z a-z 0-9 . _ -" }
+        return try {
+            requestNow(alias, timeoutMs)
+        } catch (e: java.security.GeneralSecurityException) {
+            throw OhrException.Failed("the device's keystore: ${e.message}")
+        } catch (e: java.io.IOException) {
+            throw OhrException.Failed("the device's keystore: ${e.message}")
+        }
+    }
+
+    private val ALIAS = Regex("^[A-Za-z0-9._-]{1,64}$")
+
+    private fun requestNow(alias: String, timeoutMs: Long): Certificate {
         val generation = prefs.getInt("gen.$alias", 0) + 1
         val internal = "$PREFIX$alias.$generation"
         val spec = KeyGenParameterSpec.Builder(internal, KeyProperties.PURPOSE_SIGN)
@@ -127,6 +138,7 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
     }
 
     /** A new key and certificate for [alias] when less than a third of its lifetime is left; null when it isn't due. */
+    @JvmStatic
     @WorkerThread
     fun renewIfDue(alias: String): Certificate? {
         val c = list().firstOrNull { it.alias == alias && !it.imported } ?: return null
@@ -135,9 +147,10 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
     }
 
     /** The app's client certificates: device-made and imported (the fleet's PKCS#12 bundles are installed here first). */
+    @JvmStatic
     @WorkerThread
     fun list(): List<Certificate> {
-        needsVersion2()
+        Agent.needsVersion2()
         installImported(config())
         val ks = keyStore
         val out = mutableListOf<Certificate>()
@@ -193,6 +206,7 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
      * device-made certificate it sends the path to the root the server names in its request (most servers name the
      * CAs they trust: nginx's ssl_client_certificate, OpenSSL's CA file); with none named, the organisation's.
      */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun keyManager(alias: String? = null): X509ExtendedKeyManager {
@@ -229,9 +243,10 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
     private fun internalOf(c: Certificate) = if (c.imported) IMPORTED + c.alias else prefs.getString("cur.${c.alias}", null)!!
 
     /** Trusts the system's CAs and the private CAs the fleet gives the app. */
+    @JvmStatic
     @WorkerThread
     fun trustManager(): X509TrustManager {
-        needsVersion2()
+        Agent.needsVersion2()
         val system = defaultTrust(null)
         val pems = config().optJSONArray("trust") ?: JSONArray()
         if (pems.length() == 0) return system
@@ -254,45 +269,50 @@ class OhrCertificates internal constructor(private val sdk: OhrDeviceSdk, contex
     }
 
     /** TLS with the app's client certificate ([alias], or any) and its trusted CAs. */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun sslContext(alias: String? = null): SSLContext =
         SSLContext.getInstance("TLS").apply { init(arrayOf<KeyManager>(keyManager(alias)), arrayOf<TrustManager>(trustManager()), null) }
 
-    private val watcher = Watcher({ api.watch(it) }, { api.unwatch(it) }) { c -> if (c.what == "changed") Unit else null }
+    private val watcher = Watcher(IOhrDeviceSdk.AREA_CERTIFICATES,
+        { b, l -> IOhrCertificates.Stub.asInterface(b).watch(l) }, { b, l -> IOhrCertificates.Stub.asInterface(b).unwatch(l) },
+        // After the Agent restarted: "changed", since the fleet may have changed them meanwhile.
+        current = { }) { c -> if (c.what == "changed") Unit else null }
 
     /** The fleet changed the app's certificates (issuing CA, trusted CAs, imported bundles). */
-    val changes: Flow<Unit> get() = watcher.flow.also { needsVersion2() }
+    @JvmStatic
+    val changes: Flow<Unit> get() = watcher.flow.onStart { Agent.needsVersion2() }
+
+    @JvmStatic
     fun listen(executor: Executor, listener: OhrListener<Unit>): Closeable {
-        needsVersion2()
+        Agent.needsVersion2()
         return watcher.listen(executor, listener)
     }
 
-    private companion object {
-        const val STORE = "AndroidKeyStore"
-        const val PREFIX = "net.ohrtech.cert."
-        const val IMPORTED = "net.ohrtech.cert.imported."
-        /**
-         * The hub's chain (leaf, then the issuing CA by the organisation's root and its chain, then by OhrTech and
-         * Intermediate 1) as separate paths: one per certificate for the leaf's issuer, each followed up its issuers.
-         */
-        fun paths(all: List<X509Certificate>): List<List<X509Certificate>> {
-            val leaf = all[0]
-            val rest = all.drop(1)
-            val paths = rest.filter { it.subjectX500Principal == leaf.issuerX500Principal }.map { first ->
-                val path = mutableListOf(leaf, first)
-                while (path.last().issuerX500Principal != path.last().subjectX500Principal) {
-                    val next = rest.firstOrNull { it !in path && it.subjectX500Principal == path.last().issuerX500Principal } ?: break
-                    path += next
-                }
-                path.toList()
+    private const val STORE = "AndroidKeyStore"
+    private const val PREFIX = "net.ohrtech.cert."
+    private const val IMPORTED = "net.ohrtech.cert.imported."
+    /**
+     * The hub's chain (leaf, then the issuing CA by the organisation's root and its chain, then by OhrTech and
+     * Intermediate 1) as separate paths: one per certificate for the leaf's issuer, each followed up its issuers.
+     */
+    private fun paths(all: List<X509Certificate>): List<List<X509Certificate>> {
+        val leaf = all[0]
+        val rest = all.drop(1)
+        val paths = rest.filter { it.subjectX500Principal == leaf.issuerX500Principal }.map { first ->
+            val path = mutableListOf(leaf, first)
+            while (path.last().issuerX500Principal != path.last().subjectX500Principal) {
+                val next = rest.firstOrNull { it !in path && it.subjectX500Principal == path.last().issuerX500Principal } ?: break
+                path += next
             }
-            return paths.ifEmpty { listOf(all) }
+            path.toList()
         }
-
-        fun cert(der: ByteArray) = CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(der)) as X509Certificate
-        fun pem(text: String): ByteArray = Base64.getMimeDecoder().decode(text.substringAfter("-----BEGIN CERTIFICATE-----").substringBefore("-----END CERTIFICATE-----"))
-        fun defaultTrust(ks: KeyStore?): X509TrustManager =
-            TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(ks) }.trustManagers.first { it is X509TrustManager } as X509TrustManager
+        return paths.ifEmpty { listOf(all) }
     }
+
+    private fun cert(der: ByteArray) = CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(der)) as X509Certificate
+    private fun pem(text: String): ByteArray = Base64.getMimeDecoder().decode(text.substringAfter("-----BEGIN CERTIFICATE-----").substringBefore("-----END CERTIFICATE-----"))
+    private fun defaultTrust(ks: KeyStore?): X509TrustManager =
+        TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(ks) }.trustManagers.first { it is X509TrustManager } as X509TrustManager
 }

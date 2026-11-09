@@ -1,7 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- The OhrTech Agent, whose Device SDK service the library binds. -->
     <queries>
         <package android:name="net.ohrtech.agent" />
     </queries>
+
+    <application>
+        <!-- AndroidX App Startup gives the library the application context at app start. An app that removes
+             this initializer calls OhrDeviceSdk.init(context) itself. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="net.ohrtech.device.OhrDeviceSdkInitializer"
+                android:value="androidx.startup" />
+        </provider>
+    </application>
 </manifest>

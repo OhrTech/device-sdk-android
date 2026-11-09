@@ -29,4 +29,17 @@ class OhrExceptionTest {
         assertNull(from("ohr:x"))
         assertNull(OhrException.from(IllegalArgumentException("ohr:1:")))
     }
+
+    @Test
+    fun refusedArgumentsAreInvalidConfig() {
+        val e = try {
+            checkArg(false, "alias") { "1 to 64 of A-Z a-z 0-9 . _ -" }
+            null
+        } catch (x: OhrException.InvalidConfig) {
+            x
+        }
+        assertEquals("alias", e!!.field)
+        assertEquals("1 to 64 of A-Z a-z 0-9 . _ -", e.reason)
+        checkArg(true, "alias") { error("not evaluated") }
+    }
 }

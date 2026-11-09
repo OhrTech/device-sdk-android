@@ -35,7 +35,7 @@ object OhrHpke {
         @WorkerThread
         @JvmOverloads
         fun open(enc: ByteArray, info: ByteArray, aad: ByteArray = ByteArray(0), ciphertext: ByteArray): ByteArray =
-            OhrTechProvider.sdk.keys.hpkeOpen(key.alias, KDF_HKDF_SHA256, aead, enc, info, aad, ciphertext)
+            OhrKeys.hpkeOpen(key.alias, KDF_HKDF_SHA256, aead, enc, info, aad, ciphertext)
     }
 
     /** A recipient for messages sealed to [privateKey]'s public half, with [aead]. */

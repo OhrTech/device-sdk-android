@@ -1,8 +1,11 @@
 package net.ohrtech.device
 
+import android.os.IBinder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
 import net.ohrtech.device.aidl.IOhrListener
 import java.io.Closeable
 import java.util.concurrent.Executor
@@ -16,32 +19,37 @@ fun interface OhrListener<T> {
 }
 
 /**
- * Subscribes to an area's changes. [watch] and [unwatch] are the area's own binder calls;
- * [map] turns a change into what the app sees (null skips it).
+ * Subscribes to an area's changes. [watch] and [unwatch] are the area's own binder calls; [map]
+ * turns a change into what the app sees (null skips it); [current], for areas with a state, is
+ * the state now: a subscriber gets it after the Agent came back, for what it missed meanwhile.
+ * Each collection or listener is its own subscription, ended by cancelling or closing it.
  */
-internal class Watcher<T>(
-    private val watch: (IOhrListener) -> Unit,
-    private val unwatch: (IOhrListener) -> Unit,
+internal class Watcher<T : Any>(
+    private val area: String,
+    private val watch: (IBinder, IOhrListener) -> Unit,
+    private val unwatch: (IBinder, IOhrListener) -> Unit,
+    private val current: (() -> T)? = null,
     private val map: (Change) -> T?,
 ) {
-    val flow: Flow<T> = callbackFlow {
-        val l = object : IOhrListener.Stub() {
+    private fun subscription(deliver: (T) -> Unit): Subscription {
+        val listener = object : IOhrListener.Stub() {
             override fun onChange(what: String, json: String) {
-                map(Change(what, json))?.let { trySend(it) }
+                map(Change(what, json))?.let(deliver)
             }
         }
-        agentCall { watch(l) }
-        awaitClose { runCatching { unwatch(l) } }
+        return Subscription(area, listener, watch, unwatch, current?.let { get -> { deliver(get()) } })
     }
 
+    // The binder calls (and a first bind) on the IO dispatcher, wherever the flow is collected.
+    val flow: Flow<T> = callbackFlow {
+        val sub = subscription { trySend(it) }
+        Agent.subscribe(sub)
+        awaitClose { Agent.unsubscribe(sub) }
+    }.flowOn(Dispatchers.IO)
+
     fun listen(executor: Executor, listener: OhrListener<T>): Closeable {
-        val l = object : IOhrListener.Stub() {
-            override fun onChange(what: String, json: String) {
-                val v = map(Change(what, json)) ?: return
-                executor.execute { listener.onChange(v) }
-            }
-        }
-        agentCall { watch(l) }
-        return Closeable { runCatching { unwatch(l) } }
+        val sub = subscription { v -> executor.execute { listener.onChange(v) } }
+        Agent.subscribe(sub)
+        return Closeable { Agent.unsubscribe(sub) }
     }
 }

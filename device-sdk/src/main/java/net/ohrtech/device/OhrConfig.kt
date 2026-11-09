@@ -19,34 +19,38 @@ import java.util.concurrent.Executor
  * (manifest meta-data `android.content.APP_RESTRICTIONS`, Android's standard).
  *
  * ```
- * val config = OhrConfig(context)            // or sdk.config
- * val url = config.string("server_url")      // the managed value, else the app's declared default
- * config.changes.collect { reload() }        // the fleet changed it
+ * val url = OhrConfig.string("server_url")   // the managed value, else the app's declared default
+ * OhrConfig.changes.collect { reload() }     // the fleet changed it
  * ```
  * It is Android's application restrictions, set by the OhrTech Agent, so `RestrictionsManager`
  * works too. Needs no connection to the Agent, and no fleet grant: it is the app's own configuration.
  */
-class OhrConfig(context: Context) {
-    private val app = context.applicationContext
-    private val restrictions = app.getSystemService(RestrictionsManager::class.java)
+object OhrConfig {
+    private val app get() = Agent.context
+    private val restrictions get() = app.getSystemService(RestrictionsManager::class.java)
 
     /** Every managed value (keys the fleet doesn't set are absent: see [defaults]). */
+    @JvmStatic
     fun values(): Bundle = restrictions.applicationRestrictions ?: Bundle()
 
     /** The app's declared settings, with their defaults, from its app_restrictions.xml. */
+    @JvmStatic
     fun defaults(): List<RestrictionEntry> = restrictions.getManifestRestrictions(app.packageName) ?: emptyList()
 
     /** Whether the fleet sets [key]. */
+    @JvmStatic
     fun isSet(key: String): Boolean = values().containsKey(key)
 
     private fun declared(key: String) = defaults().firstOrNull { it.key == key }
 
     /** A string, choice or hidden setting: the managed value, else the declared default, else [fallback]. */
+    @JvmStatic
     @JvmOverloads
     fun string(key: String, fallback: String? = null): String? =
         values().getString(key) ?: declared(key)?.selectedString ?: fallback
 
     /** From Java: `getInt(key)` (`int` is a Java keyword). */
+    @JvmStatic
     @JvmOverloads
     @JvmName("getInt")
     fun int(key: String, fallback: Int = 0): Int {
@@ -54,6 +58,7 @@ class OhrConfig(context: Context) {
         return if (v.containsKey(key)) v.getInt(key) else declared(key)?.takeIf { it.type == RestrictionEntry.TYPE_INTEGER }?.intValue ?: fallback
     }
 
+    @JvmStatic
     @JvmOverloads
     fun bool(key: String, fallback: Boolean = false): Boolean {
         val v = values()
@@ -61,18 +66,22 @@ class OhrConfig(context: Context) {
     }
 
     /** A multi-select setting. */
+    @JvmStatic
     fun strings(key: String): List<String> =
         values().getStringArray(key)?.toList() ?: declared(key)?.allSelectedStrings?.toList() ?: emptyList()
 
     /** A bundle setting (a group of settings), or null if the fleet doesn't set it. */
+    @JvmStatic
     fun bundle(key: String): Bundle? = values().getBundle(key)
 
     /** A bundle-array setting (a list of groups). */
+    @JvmStatic
     @Suppress("DEPRECATION")
     fun bundles(key: String): List<Bundle> =
         values().getParcelableArray(key)?.filterIsInstance<Bundle>() ?: emptyList()
 
     /** Every change of the managed configuration, as the new values. */
+    @JvmStatic
     val changes: Flow<Bundle>
         get() = callbackFlow {
             val receiver = object : BroadcastReceiver() {
@@ -85,6 +94,7 @@ class OhrConfig(context: Context) {
         }
 
     /** For Java: told of changes on [executor]; close the returned [Closeable] to stop. */
+    @JvmStatic
     fun listen(executor: Executor, listener: OhrListener<Bundle>): Closeable {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {

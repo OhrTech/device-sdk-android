@@ -1,7 +1,5 @@
 package net.ohrtech.device.keys
 
-import net.ohrtech.device.OhrDeviceSdk
-import net.ohrtech.device.OhrException
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.InvalidAlgorithmParameterException
@@ -23,7 +21,7 @@ import java.util.Enumeration
 /**
  * The JCA provider "OhrTech" over [OhrKeys]: TEE keys by their standard names.
  * ```
- * OhrTechProvider.install(sdk)
+ * OhrTechProvider.install()
  * val kpg = KeyPairGenerator.getInstance("ML-KEM-768", "OhrTech")
  * kpg.initialize(OhrKeyGenParameterSpec("orders"))
  * val pair = kpg.generateKeyPair()          // pair.private stays in the TEE: a handle
@@ -44,18 +42,10 @@ class OhrTechProvider private constructor() : @Suppress("DEPRECATION") Provider(
     companion object {
         const val NAME = "OhrTech"
 
-        @Volatile
-        private var installedSdk: OhrDeviceSdk? = null
-
-        internal val sdk: OhrDeviceSdk
-            get() = installedSdk?.takeIf { it.isConnected }
-                ?: throw OhrException.Failed("OhrTechProvider.install(sdk) with a connected OhrDeviceSdk first")
-
-        /** Adds the provider (once), backed by [sdk]; call again with a new SDK after reconnecting. */
+        /** Adds the provider (once per process). */
         @JvmStatic
         @Synchronized
-        fun install(sdk: OhrDeviceSdk) {
-            installedSdk = sdk
+        fun install() {
             if (Security.getProvider(NAME) == null) Security.addProvider(OhrTechProvider())
         }
     }
@@ -79,14 +69,14 @@ class OhrTechProvider private constructor() : @Suppress("DEPRECATION") Provider(
 
         override fun generateKeyPair(): KeyPair {
             val a = alias ?: throw IllegalStateException("initialize with an OhrKeyGenParameterSpec first")
-            val pub = sdk.keys.generate(a, algorithm)
+            val pub = OhrKeys.generate(a, algorithm)
             return KeyPair(OhrPublicKey(algorithm, pub), OhrPrivateKey(a, algorithm))
         }
     }
 
     /** The app's TEE keys, read-only: aliases, and [OhrPrivateKey] handles (getKey). */
     class Store : KeyStoreSpi() {
-        private fun keys() = sdk.keys.list()
+        private fun keys() = OhrKeys.list()
         override fun engineGetKey(alias: String, password: CharArray?): Key? =
             keys().firstOrNull { it.alias == alias }?.let { OhrPrivateKey(it.alias, it.algorithm) }
 
@@ -100,7 +90,7 @@ class OhrTechProvider private constructor() : @Suppress("DEPRECATION") Provider(
             throw UnsupportedOperationException("TEE keys are made with KeyPairGenerator, not imported")
 
         override fun engineSetCertificateEntry(alias: String?, cert: Certificate?) = throw UnsupportedOperationException()
-        override fun engineDeleteEntry(alias: String) = sdk.keys.delete(alias)
+        override fun engineDeleteEntry(alias: String) = OhrKeys.delete(alias)
         override fun engineAliases(): Enumeration<String> = Collections.enumeration(keys().map { it.alias })
         override fun engineContainsAlias(alias: String) = keys().any { it.alias == alias }
         override fun engineSize() = keys().size

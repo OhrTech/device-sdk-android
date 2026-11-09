@@ -14,9 +14,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import net.ohrtech.device.OhrDeviceSdk
+import net.ohrtech.device.OhrAccess
+import net.ohrtech.device.OhrDevice
 import net.ohrtech.device.OhrException
+import net.ohrtech.device.OhrKiosk
 import net.ohrtech.device.OhrWifiView
+import net.ohrtech.device.push.OhrPush
 import net.ohrtech.device.push.SenderKey
 
 /**
@@ -26,7 +29,6 @@ import net.ohrtech.device.push.SenderKey
  */
 class MainActivity : Activity() {
     private val scope = CoroutineScope(Job() + Dispatchers.Main)
-    private var sdk: OhrDeviceSdk? = null
     private lateinit var status: TextView
     private lateinit var wifi: OhrWifiView
 
@@ -39,16 +41,16 @@ class MainActivity : Activity() {
         }
         status = TextView(this).apply { textSize = 16f }
         val buttons = LinearLayout(this)
-        fun button(label: String, action: suspend (OhrDeviceSdk) -> String) = Button(this).apply {
+        fun button(label: String, action: suspend () -> String) = Button(this).apply {
             text = label
             setOnClickListener { run(label, action) }
             buttons.addView(this)
         }
-        button("Kiosk on") { it.kiosk.start(this@MainActivity); "kiosk on" }
-        button("Kiosk off") { it.kiosk.stop(); "kiosk off" }
-        button("Push") { s ->
+        button("Kiosk on") { OhrKiosk.start(this@MainActivity); "kiosk on" }
+        button("Kiosk off") { OhrKiosk.stop(); "kiosk off" }
+        button("Push") {
             val key = intent.getStringExtra("senderKey") ?: return@button "start with --es senderKey <base64>"
-            val t = s.push.register(listOf(SenderKey.fromBase64(key)))
+            val t = OhrPush.register(listOf(SenderKey.fromBase64(key)))
             Log.i(TAG, "push token ${t.token} publicKey ${t.publicKeyBase64}")
             "push token ${t.token}"
         }
@@ -65,22 +67,19 @@ class MainActivity : Activity() {
 
         scope.launch {
             try {
-                val s = OhrDeviceSdk.connect(this@MainActivity)
-                sdk = s
-                val info = s.device.infoAsync()
-                show("${info.deviceId} · ${info.fleet?.name} · Agent ${info.agentVersion}\nmay use: ${s.session.areas.sorted().joinToString()}")
-                if (s.session.mayUse("wifi")) wifi.attach(s)
+                val info = OhrDevice.infoAsync()
+                val access = OhrAccess.infoAsync()
+                show("${info.deviceId} · ${info.fleet?.name} · Agent ${info.agentVersion}\nmay use: ${access.areas.sorted().joinToString()}")
             } catch (e: OhrException) {
                 show("Device SDK: ${e.message}")
             }
         }
     }
 
-    private fun run(label: String, action: suspend (OhrDeviceSdk) -> String) {
-        val s = sdk ?: return show("not connected")
+    private fun run(label: String, action: suspend () -> String) {
         scope.launch {
             show(try {
-                withContext(Dispatchers.IO) { action(s) }
+                withContext(Dispatchers.IO) { action() }
             } catch (e: OhrException) {
                 "$label: ${e.javaClass.simpleName}: ${e.message}"
             })
@@ -94,7 +93,6 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         scope.cancel()
-        sdk?.close()
         super.onDestroy()
     }
 

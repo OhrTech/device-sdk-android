@@ -23,9 +23,10 @@ import java.util.concurrent.Executors
  *
  * ```
  * <net.ohrtech.device.OhrWifiView android:id="@+id/wifi" android:layout_width="match_parent" android:layout_height="match_parent" />
- * wifiView.attach(sdk)
  * ```
- * With `layout_height="wrap_content"` the view takes the screen's own height.
+ * It opens once it is laid out, and again when it is attached again or the Agent was restarted.
+ * Set [listener] and [options] before it is laid out (in onCreate). With
+ * `layout_height="wrap_content"` the view takes the screen's own height.
  */
 class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : SurfaceView(context, attrs) {
 
@@ -80,28 +81,36 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
             screen?.let { s -> io.execute { runCatching { s.setTheme(value.bundle()) } } }
         }
 
-    private var sdk: OhrDeviceSdk? = null
     private var screen: IOhrScreen? = null
     private var opening = false
     private var contentHeight = 0
     private val main = Handler(Looper.getMainLooper())
 
     init {
+        OhrDeviceSdk.init(context)
         // Above the window, so the embedded screen gets input (and the keyboard) like a view.
         setZOrderOnTop(true)
     }
 
-    /** Shows the screen (once the view is laid out), through [sdk]. */
-    fun attach(sdk: OhrDeviceSdk) {
-        this.sdk = sdk
-        if (isAttachedToWindow && width > 0 && height > 0) open()
+    private var reconnects: java.io.Closeable? = null
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (width > 0 && height > 0) open()
+        // The Agent restarted: its screen went with it, so open it again.
+        reconnects = OhrDeviceSdk.listenConnection({ main.post(it) }) { c ->
+            if (c == OhrDeviceSdk.Connection.CONNECTED && isAttachedToWindow) {
+                screen = null
+                if (width > 0 && height > 0) open()
+            }
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         val s = screen
         if (s == null) {
-            if (sdk != null && w > 0 && h > 0) open()
+            if (w > 0 && h > 0) open()
         } else {
             io.execute { runCatching { s.resize(w, h) } }
         }
@@ -117,6 +126,8 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
     }
 
     override fun onDetachedFromWindow() {
+        reconnects?.close()
+        reconnects = null
         val s = screen
         screen = null
         if (s != null) io.execute { runCatching { s.close() } }
@@ -124,7 +135,7 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
     }
 
     private fun open() {
-        val sdk = sdk ?: return
+        if (!isAttachedToWindow) return
         if (opening || screen != null) return
         val token = hostToken ?: return
         val displayId = display?.displayId ?: return
@@ -135,7 +146,7 @@ class OhrWifiView @JvmOverloads constructor(context: Context, attrs: AttributeSe
         val optionsBundle = options.bundle()
         io.execute {
             try {
-                val screens = IOhrScreens.Stub.asInterface(sdk.area(IOhrDeviceSdk.AREA_SCREENS))
+                val screens = IOhrScreens.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_SCREENS))
                 val out = agentCall {
                     screens.open(IOhrScreens.SCREEN_WIFI, token, displayId, w, h, themeBundle, optionsBundle, callback)
                 }

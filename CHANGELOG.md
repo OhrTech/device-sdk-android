@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0 (unreleased)
+
+The areas are objects to call directly, over one connection to the Agent that the library keeps for
+the life of the process. Works with the OhrTech Agent 1059 or later, like 0.2.0.
+
+- **No `connect()` and nothing to close.** `OhrDeviceSdk.connect(context).wifi.state()` is now
+  `OhrWifi.state()`; likewise `OhrDevice`, `OhrUpdates`, `OhrNetwork`, `OhrKiosk`, `OhrPower`,
+  `OhrSettings`, `OhrConfig`, `OhrAttestation`, `OhrCertificates`, `OhrUsb`, `OhrDiagnostics`,
+  `OhrKeys` and `OhrPush`. From Java they are static methods. The application context comes from
+  AndroidX App Startup (`OhrDeviceSdk.init(context)` if an app removes the initializer).
+- **The connection looks after itself.** It binds on the first call, from any thread (the binding is
+  answered on the library's own thread, so a first call on the main thread doesn't deadlock). When
+  the Agent stops, a crash or its own update, it binds again and every flow and listener goes on;
+  flows of a state (Wi-Fi, network, battery, kiosk mode, updates) get the current state when the Agent
+  is back, for what changed meanwhile. Calls made while the Agent is away wait for it (10 s).
+  `OhrDeviceSdk.connection` (and `listenConnection`) says how it stands; `OhrDeviceSdk.connect()`
+  connects up front.
+- **`OhrAccess`** replaces `session`: `OhrAccess.info()` and `OhrAccess.mayUse(area)` ask the Agent
+  each time, so a change of the fleet's grants shows at once.
+- `OhrWifiView` opens by itself once laid out, and again when it is attached again or the Agent was
+  restarted; `attach(sdk)` is gone.
+- `OhrKiosk.beat(timeoutMs)`: one heartbeat, for apps whose UI thread isn't Android's main thread
+  (Flutter, React Native). The automatic `heartbeat()` survives Agent restarts.
+- `OhrTechProvider.install()` takes no argument. `OhrPushService` uses the app's connection.
+- Arguments the library refuses throw `OhrException.InvalidConfig(field, reason)`, not
+  `IllegalArgumentException`; an unexpected error from the Agent is `OhrException.Failed`.
+- `OhrKeys.Attestation.owner` is documented as it is: the Agent's UUID for the app, not its `app_…` id.
+
 ## 0.2.0 (2026-11-09)
 
 Needs the OhrTech Agent 1061 or later for everything new.

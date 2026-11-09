@@ -13,7 +13,7 @@ import javax.crypto.spec.SecretKeySpec
  * A key encapsulation mechanism over the TEE keys, shaped like Java's `javax.crypto.KEM` (which
  * Android doesn't offer for these algorithms):
  * ```
- * OhrTechProvider.install(sdk)
+ * OhrTechProvider.install()
  * val kem = OhrKem.getInstance("ML-KEM-768")
  * val (secret, ciphertext) = kem.newEncapsulator(theirPublicKey).encapsulate()   // the sender
  * val secret = kem.newDecapsulator(myPrivateKey).decapsulate(ciphertext)          // the TEE key's owner
@@ -36,7 +36,7 @@ class OhrKem private constructor(val algorithm: OhrKeys.Algorithm) {
 
         @WorkerThread
         fun encapsulate(): Encapsulated {
-            val e = OhrTechProvider.sdk.keys.encapsulate(algorithm, publicKey)
+            val e = OhrKeys.encapsulate(algorithm, publicKey)
             return Encapsulated(secret(e.sharedSecret), e.ciphertext)
         }
     }
@@ -49,7 +49,7 @@ class OhrKem private constructor(val algorithm: OhrKeys.Algorithm) {
         @WorkerThread
         fun decapsulate(encapsulation: ByteArray): SecretKey {
             require(encapsulation.size == encapsulationSize()) { "a ${algorithm.standardName} encapsulation is ${encapsulationSize()} bytes" }
-            return secret(OhrTechProvider.sdk.keys.decapsulate(key.alias, encapsulation))
+            return secret(OhrKeys.decapsulate(key.alias, encapsulation))
         }
     }
 

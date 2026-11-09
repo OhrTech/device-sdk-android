@@ -16,32 +16,38 @@ import org.json.JSONObject
  *
  * Both are one way calls: they never block, and may be called from any thread, the main one included.
  */
-class OhrDiagnostics internal constructor(private val sdk: OhrDeviceSdk) {
-    private val api get() = IOhrDiagnostics.Stub.asInterface(sdk.area(IOhrDeviceSdk.AREA_DIAGNOSTICS))
-
-    private fun needsVersion2() {
-        if (sdk.session.agentInterface < 2) throw OhrException.Unsupported("This OhrTech Agent is too old for it", needsAgent = 1061)
-    }
+object OhrDiagnostics {
+    private val api get() = IOhrDiagnostics.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_DIAGNOSTICS))
 
     /** [name]: lower camel or snake case, up to 64 characters; [data]: up to 2 KB as JSON. */
+    @JvmStatic
     @JvmOverloads
     fun event(name: String, data: Map<String, Any?> = emptyMap()) = event(name, JSONObject(data))
 
+    @JvmStatic
     fun event(name: String, data: JSONObject) {
-        needsVersion2()
-        require(Regex("^[a-z][A-Za-z0-9_.]{0,63}$").matches(name)) { "event names are [a-z][A-Za-z0-9_.]{0,63}" }
+        Agent.needsVersion2()
+        checkArg(NAME.matches(name), "name") { "event names are [a-z][A-Za-z0-9_.]{0,63}" }
         val json = data.toString()
-        require(json.length <= 2048) { "event data is at most 2 KB" }
+        checkArg(json.length <= 2048, "data") { "event data is at most 2 KB as JSON" }
         agentCall { api.event(name, json) }
     }
 
+    private val NAME = Regex("^[a-z][A-Za-z0-9_.]{0,63}$")
+
     /** A log line for log bundles; [priority] is android.util.Log's (Log.INFO, ...). */
+    @JvmStatic
     fun log(priority: Int, tag: String, message: String) {
-        needsVersion2()
+        Agent.needsVersion2()
         agentCall { api.log(priority, tag, message) }
     }
 
+    @JvmStatic
     fun i(tag: String, message: String) = log(Log.INFO, tag, message)
+
+    @JvmStatic
     fun w(tag: String, message: String) = log(Log.WARN, tag, message)
+
+    @JvmStatic
     fun e(tag: String, message: String) = log(Log.ERROR, tag, message)
 }

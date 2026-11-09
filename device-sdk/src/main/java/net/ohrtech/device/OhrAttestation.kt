@@ -27,7 +27,7 @@ import java.util.Base64
  * Two suites: [Suite.EC] (P-256), and [Suite.EC_MLDSA65], post-quantum: an EC key and an ML-DSA-65
  * key, both attested, everything signed with both. ML-DSA alone is not offered.
  */
-class OhrAttestation {
+object OhrAttestation {
 
     enum class Suite { EC, EC_MLDSA65 }
 
@@ -49,10 +49,11 @@ class OhrAttestation {
      * A new attested key (or keys) bound to [challenge] (your server's nonce, at most 128 bytes),
      * replacing the one before. Takes a moment: the TEE makes and certifies the key.
      */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun attest(challenge: ByteArray, suite: Suite = Suite.EC): Attestation {
-        require(challenge.size in 1..128) { "the challenge is 1 to 128 bytes" }
+        checkArg(challenge.size in 1..128, "challenge") { "1 to 128 bytes" }
         return keystore { attestNow(challenge, suite) }
     }
 
@@ -82,6 +83,7 @@ class OhrAttestation {
     }
 
     /** The suite of the current attested key, or null before [attest]. */
+    @JvmStatic
     val suite: Suite?
         get() = keystore {
             when {
@@ -98,6 +100,7 @@ class OhrAttestation {
      * `{"aud", "iat", "exp", ?"nonce"}`. The EC signature is JWS's (r ‖ s), so an ES256 token is a
      * standard JWS; the ML-DSA-65 signature (pure, empty context) covers `header.payload` too.
      */
+    @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun token(audience: String, ttlSeconds: Long = 300, nonce: String? = null): String {
@@ -122,25 +125,23 @@ class OhrAttestation {
             sign()
         }
 
-    private companion object {
-        const val STORE = "AndroidKeyStore"
-        const val EC_ALIAS = "net.ohrtech.attestation.ec"
-        const val MLDSA_ALIAS = "net.ohrtech.attestation.mldsa65"
-        /** An ECDSA P-256 signature from DER (SEQUENCE of two INTEGERs) to JWS's 64 bytes, r ‖ s. */
-        fun p1363(der: ByteArray): ByteArray {
-            val out = ByteArray(64)
-            var i = 2 + (if (der[1].toInt() and 0x80 != 0) der[1].toInt() and 0x7f else 0)
-            for (half in 0..1) {
-                require(der[i].toInt() == 0x02) { "not an ECDSA signature" }
-                var len = der[i + 1].toInt()
-                var start = i + 2
-                while (len > 32) { start++; len-- }  // a leading 0x00
-                System.arraycopy(der, start, out, half * 32 + 32 - len, len)
-                i = start + len
-            }
-            return out
+    private const val STORE = "AndroidKeyStore"
+    private const val EC_ALIAS = "net.ohrtech.attestation.ec"
+    private const val MLDSA_ALIAS = "net.ohrtech.attestation.mldsa65"
+    /** An ECDSA P-256 signature from DER (SEQUENCE of two INTEGERs) to JWS's 64 bytes, r ‖ s. */
+    private fun p1363(der: ByteArray): ByteArray {
+        val out = ByteArray(64)
+        var i = 2 + (if (der[1].toInt() and 0x80 != 0) der[1].toInt() and 0x7f else 0)
+        for (half in 0..1) {
+            require(der[i].toInt() == 0x02) { "not an ECDSA signature" }
+            var len = der[i + 1].toInt()
+            var start = i + 2
+            while (len > 32) { start++; len-- }  // a leading 0x00
+            System.arraycopy(der, start, out, half * 32 + 32 - len, len)
+            i = start + len
         }
-        fun b64(b: ByteArray): String = Base64.getEncoder().encodeToString(b)
-        fun b64url(b: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(b)
+        return out
     }
+    private fun b64(b: ByteArray): String = Base64.getEncoder().encodeToString(b)
+    private fun b64url(b: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(b)
 }
