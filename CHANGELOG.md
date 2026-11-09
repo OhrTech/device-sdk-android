@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-11-09)
 
 Needs the OhrTech Agent 1061 or later for everything new.
 

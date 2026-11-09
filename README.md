@@ -2,16 +2,20 @@
 
 `net.ohrtech:device-sdk`: what an app on an OhrTech device can ask the OhrTech Agent for. Who
 the device is, the app's own updates, Wi-Fi (with Android's Wi-Fi screen embedded in your
-layout), mobile data and airplane mode, kiosk mode, power, settings, KEM keys in the device's TEE,
-and push from your own server, end to end.
+layout), mobile data and airplane mode, kiosk mode, power, settings, managed configuration, KEM
+keys and attestation in the device's TEE, client certificates, pre-approved USB devices, its own
+events and logs, and push from your own server, end to end.
+
+**Documentation: <https://docs.ohrtech.net/device-sdk/>**
 
 ```kotlin
 dependencies {
-    implementation("net.ohrtech:device-sdk:0.1.0")
+    implementation("net.ohrtech:device-sdk:0.2.0")
 }
 ```
 
-Android 13 (API 33) and up, on OhrTech devices. This is the **Device** SDK, for apps on the
+Android 13 (API 33) and up, on OhrTech devices, with the OhrTech Agent 1059 or later (1061 for
+what 0.2.0 added; see the [changelog](CHANGELOG.md)). This is the **Device** SDK, for apps on the
 device. For servers, use the Management SDK ([.NET](https://github.com/OhrTech/management-sdk-dotnet)).
 
 ## Who may use what
@@ -19,7 +23,7 @@ device. For servers, use the Management SDK ([.NET](https://github.com/OhrTech/m
 The Agent answers apps your organisation installed through OhrTech; others get `NotManaged`.
 Reading is mostly always allowed. Changing something needs the fleet's grant for that area, set in
 the portal under the fleet's apps: `wifi`, `network`, `kiosk`, `power`, `settings`. `device`,
-`updates`, `keys` and `push` are open to every managed app. Settings and networks the fleet locks
+`updates`, `keys`, `push`, `diagnostics`, `usb` and `certificates` are open to every managed app. Settings and networks the fleet locks
 stay locked (`FleetLocked`).
 
 ## Connect
@@ -43,7 +47,12 @@ Java, a listener on an `Executor` (`sdk.wifi.listenState(executor, listener)`; c
 | `network` | `state()`, `setMobileData`, `setAirplaneMode`, `setDataRoaming` |
 | `kiosk` | `start(activity, features)`, `stop()`, `state()`: lock task as the system |
 | `power` | `battery()`, `reboot`, `scheduleReboot`, `setScreenTimeout`, `setBrightness` |
-| `settings` | `keys()`, `get(key)`, `set(key, value)`: the OhrTech settings catalogue |
+| `settings` | `keys()`, `get(key)`, `set(key, value)`: the device settings apps may change, checked as the catalogue says |
+| `config` | the app's managed configuration, as its fleet or device sets it |
+| `attestation` | `attest(challenge)`, `token(audience)`: proof for your server of this app on this device |
+| `certificates` | client certificates made on the device or imported, trusted CAs, `sslContext()` |
+| `usb` | the USB devices the fleet pre-approves for the app: no permission prompt |
+| `diagnostics` | the app's own events and log lines for the hub; crashes are reported without it |
 | `keys` | TEE KEM keys: see below |
 | `push` | end-to-end push: see below |
 
@@ -151,8 +160,8 @@ and app for your own devices), or offline with the Management SDK (`DeviceAttest
 
 ## Errors
 
-Every call throws an `OhrException`: `NotManaged`, `NotAllowed(area)`, `FleetLocked(key)`,
-`Unsupported(reason)`, `InvalidConfig(field, reason)` or `Failed(reason)`.
+Every call throws an `OhrException` (unchecked): `NotManaged`, `NotAllowed(area)`, `FleetLocked(key)`,
+`Unsupported(reason, needsAgent)`, `InvalidConfig(field, reason)`, `Refused(reason)` or `Failed(reason)`.
 
 ## Building
 
