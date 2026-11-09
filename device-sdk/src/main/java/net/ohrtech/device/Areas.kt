@@ -219,6 +219,10 @@ object OhrKiosk {
      * main thread, a few times per [timeoutMs]. If the beats stop for longer (the main thread hangs),
      * the Agent stops the app and starts it again. Only while the app is pinned; call it again after
      * [start]. [stopHeartbeat] ends it. One heartbeat per app: calling it again replaces it.
+     *
+     * With Agent 1062+, the fleet's response timeout for the app (portal or Management API), when set,
+     * replaces [timeoutMs], and hangs aren't counted while the screen is off (the app gets a full timeout
+     * again when it comes back on).
      */
     @JvmStatic
     @JvmOverloads
