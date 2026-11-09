@@ -214,6 +214,26 @@ object OhrKiosk {
     private fun checkTimeout(timeoutMs: Long) =
         checkArg(timeoutMs in 2_000..600_000, "timeoutMs") { "2 s to 10 minutes" }
 
+    /** The Agent's heartbeat calls run here, never on the caller's thread (see [send]). */
+    private val beats = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "OhrDeviceSdk-beat").apply { isDaemon = true } }
+    private val beatWaiting = java.util.concurrent.atomic.AtomicBoolean()
+
+    /**
+     * One beat, sent from the library's beat thread: a beat proves the thread that asked for it is alive, so that
+     * thread must never wait for the Agent (which takes up to 10 s to come back when it restarts). While a beat
+     * waits for the Agent, the next ones are skipped rather than queued.
+     */
+    private fun send(timeoutMs: Int) {
+        if (!beatWaiting.compareAndSet(false, true)) return
+        beats.execute {
+            try {
+                runCatching { api.heartbeat(timeoutMs) }
+            } finally {
+                beatWaiting.set(false)
+            }
+        }
+    }
+
     /**
      * Tells the Agent's kiosk watchdog that the app's main thread is alive: the library beats from the
      * main thread, a few times per [timeoutMs]. If the beats stop for longer (the main thread hangs),
@@ -234,8 +254,8 @@ object OhrKiosk {
         val beat = object : Runnable {
             override fun run() {
                 if (beating !== this) return
-                // The Agent's binder each time: it may have been restarted since the last beat.
-                runCatching { api.heartbeat(timeoutMs.toInt()) }
+                // Running here proves the main thread is alive; the call itself goes to the beat thread.
+                send(timeoutMs.toInt())
                 main.postDelayed(this, every)
             }
         }
@@ -246,23 +266,24 @@ object OhrKiosk {
     /**
      * One beat, for an app whose UI runs on a thread of its own (Flutter's UI isolate, React Native's
      * JavaScript thread): call it from that thread a few times per [timeoutMs] instead of [heartbeat].
-     * One way: it never blocks.
+     * It never waits for the Agent: the beat is sent from the library's own thread. (Only the process's
+     * very first call to the SDK may wait, while the library binds the Agent.)
      */
     @JvmStatic
     @JvmOverloads
     fun beat(timeoutMs: Long = 10_000) {
         Agent.needsVersion2()
         checkTimeout(timeoutMs)
-        runCatching { api.heartbeat(timeoutMs.toInt()) }
+        send(timeoutMs.toInt())
     }
 
-    /** Stops the heartbeat (and the Agent's watch on it). */
+    /** Stops the heartbeat (and the Agent's watch on it). Never waits: the stop goes after any beat already sent. */
     @JvmStatic
     fun stopHeartbeat() {
         val b = beating
         beating = null
         if (b != null) main.removeCallbacks(b)
-        runCatching { api.heartbeat(0) }
+        beats.execute { runCatching { api.heartbeat(0) } }
     }
 }
 

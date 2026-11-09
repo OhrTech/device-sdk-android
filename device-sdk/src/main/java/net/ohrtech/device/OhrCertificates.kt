@@ -92,6 +92,8 @@ object OhrCertificates {
             requestNow(alias, timeoutMs)
         } catch (e: java.security.GeneralSecurityException) {
             throw OhrException.Failed("the device's keystore: ${e.message}")
+        } catch (e: java.security.ProviderException) {
+            throw OhrException.Failed("the device's keystore: ${e.message}")
         } catch (e: java.io.IOException) {
             throw OhrException.Failed("the device's keystore: ${e.message}")
         }

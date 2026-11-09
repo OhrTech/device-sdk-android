@@ -196,6 +196,7 @@ class ChecksActivity : Activity() {
                                 Thread.sleep(120_000)
                             }
                             "reconnect" -> reconnect()
+                            "heartbeat-restart" -> heartbeatRestart()
                             "config-watch" -> step("config change arrives") {
                                 // One change of the managed configuration, within 90 s (the hub sends it).
                                 val changed = kotlinx.coroutines.runBlocking {
@@ -277,6 +278,38 @@ class ChecksActivity : Activity() {
         step("calls after") { OhrDevice.info().deviceId }
         kiosk.close()
         scope.cancel()
+    }
+
+    /**
+     * The heartbeat never stalls the main thread, even while the Agent restarts: kiosk mode with a 3 s heartbeat,
+     * the main thread timed every 100 ms while the harness crashes the Agent (after "CHECK READY heartbeat-restart").
+     */
+    private fun heartbeatRestart() {
+        step("kiosk start") { OhrKiosk.start(this); "pinned" }
+        runOnUiThread { OhrKiosk.heartbeat(3000) }
+        val gaps = java.util.concurrent.atomic.AtomicLong()
+        val last = java.util.concurrent.atomic.AtomicLong(android.os.SystemClock.uptimeMillis())
+        val tick = object : Runnable {
+            override fun run() {
+                val now = android.os.SystemClock.uptimeMillis()
+                gaps.accumulateAndGet(now - last.getAndSet(now)) { a, b -> maxOf(a, b) }
+                window.decorView.postDelayed(this, 100)
+            }
+        }
+        runOnUiThread { window.decorView.post(tick) }
+        Thread.sleep(2000)
+        gaps.set(0)
+        Log.i(TAG, "CHECK READY heartbeat-restart")
+        Thread.sleep(intent.getIntExtra("wait", 25) * 1000L)
+        runOnUiThread { window.decorView.removeCallbacks(tick) }
+        step("main thread never stalled") {
+            val g = gaps.get()
+            check(g < 1000) { "the main thread stalled ${g} ms" }
+            "longest gap ${g} ms, ${OhrDeviceSdk.connection.value}"
+        }
+        step("still pinned, by the same process") { OhrKiosk.state().mode }
+        runOnUiThread { OhrKiosk.stopHeartbeat() }
+        step("kiosk stop") { OhrKiosk.stop(); OhrKiosk.state().mode }
     }
 
     private fun pass(name: String, detail: String = "") {

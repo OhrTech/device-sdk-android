@@ -57,10 +57,15 @@ object OhrAttestation {
         return keystore { attestNow(challenge, suite) }
     }
 
-    /** The Keystore's checked exceptions as [OhrException.Failed], so Java needn't catch Exception. */
+    /**
+     * The Keystore's exceptions as [OhrException.Failed], so Java needn't catch Exception: its checked ones, and
+     * ProviderException, which a failed key generation throws.
+     */
     private inline fun <T> keystore(block: () -> T): T = try {
         block()
     } catch (e: java.security.GeneralSecurityException) {
+        throw OhrException.Failed("the device's keystore: ${e.message}")
+    } catch (e: java.security.ProviderException) {
         throw OhrException.Failed("the device's keystore: ${e.message}")
     } catch (e: java.io.IOException) {
         throw OhrException.Failed("the device's keystore: ${e.message}")

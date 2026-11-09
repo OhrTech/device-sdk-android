@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-11-09)
+
+- The kiosk heartbeat never stalls the app's main thread. Each beat is now sent from the library's own thread;
+  in 0.3.0 the main thread waited for the Agent when the Agent was being updated (about 4 s on a test device, near
+  Android's 5 s ANR limit). `OhrKiosk.beat()` and `stopHeartbeat()` don't wait for the Agent either.
+- A key generation that fails in the Android Keystore (`ProviderException`) is `OhrException.Failed` in
+  `OhrAttestation` and `OhrCertificates`, like the Keystore's other errors.
+
 ## 0.3.0 (2026-11-09)
 
 The areas are objects to call directly, over one connection to the Agent that the library keeps for
