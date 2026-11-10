@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+- `net.ohrtech.device.json.OhrJsonApi`: the Device SDK as JSON, for SDKs that reach the library over a text bridge.
+  Each method by name (`call(method, argsJson)`, JSON text back) with the area it belongs to (`areaOf`), each kind of
+  change (`watch(kind, executor, send)`), and errors as `{code, message, details}` (`OhrJsonApi.error`). A host adds
+  methods of its own. The React Native module and OhrTech web apps' Device SDK use it.
+
 ## 0.3.2 (2026-11-10)
 
 - A push message the app doesn't take is no longer lost silently. If `OhrPushService.onMessage` throws, the hub
