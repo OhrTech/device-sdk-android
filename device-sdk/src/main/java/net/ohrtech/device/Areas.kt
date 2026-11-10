@@ -147,7 +147,7 @@ object OhrNetwork {
  * fleet lets kiosk apps leave; otherwise the hub or the exit PIN ends it.
  */
 object OhrKiosk {
-    /** What stays available in kiosk mode (combine with `or`). */
+    /** What stays available in kiosk mode (combine with `or`). [NOTIFICATIONS] and [OVERVIEW] need [HOME] too (Android's rule). */
     object Feature {
         const val SYSTEM_INFO = IOhrKiosk.FEATURE_SYSTEM_INFO
         const val NOTIFICATIONS = IOhrKiosk.FEATURE_NOTIFICATIONS
@@ -163,11 +163,17 @@ object OhrKiosk {
 
     private val api get() = IOhrKiosk.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_KIOSK))
 
-    /** Pins [activity]'s task, keeping [features] (default: the power menu and status bar info). */
+    /**
+     * Pins [activity]'s task, keeping [features] (default: the power menu and status bar info).
+     * [Feature.NOTIFICATIONS] or [Feature.OVERVIEW] without [Feature.HOME] is [OhrException.InvalidConfig].
+     */
     @JvmStatic
     @WorkerThread
     @JvmOverloads
     fun start(activity: Activity, features: Int = Feature.GLOBAL_ACTIONS or Feature.SYSTEM_INFO) {
+        checkArg(features and (Feature.NOTIFICATIONS or Feature.OVERVIEW) == 0 || features and Feature.HOME != 0, "features") {
+            "NOTIFICATIONS and OVERVIEW need HOME too"
+        }
         Agent.init(activity)
         agentCall { api.start(activity.taskId, features) }
     }

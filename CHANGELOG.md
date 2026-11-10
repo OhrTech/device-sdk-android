@@ -8,6 +8,8 @@
 - `OhrDiagnostics.event` and `log` never wait for the Agent: the arguments are checked at once and the call goes
   from the library's own thread, in order. In 0.3.1 they waited for the Agent while it restarted.
 - `OhrPush.tokenAsync()` and `unregisterAsync()`, beside `registerAsync()`.
+- `OhrKiosk.start` with `NOTIFICATIONS` or `OVERVIEW` but not `HOME` is `OhrException.InvalidConfig` (field `features`):
+  Android doesn't allow them without the home button. Agent 1063 refuses it too.
 - A bad AEAD for `OhrHpke.recipient` and an encapsulation of the wrong size for `OhrKem` decapsulation are
   `OhrException.InvalidConfig` (fields `aead`, `encapsulation`), not `IllegalArgumentException`.
 - `OhrPushService.onTokenChanged`: today the Agent calls it only when the hub ended the token (null).
