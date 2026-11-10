@@ -10,6 +10,8 @@
 - `OhrPush.tokenAsync()` and `unregisterAsync()`, beside `registerAsync()`.
 - `OhrKiosk.start` with `NOTIFICATIONS` or `OVERVIEW` but not `HOME` is `OhrException.InvalidConfig` (field `features`):
   Android doesn't allow them without the home button. Agent 1063 refuses it too.
+- A reboot reason (`OhrPower.reboot`, `scheduleReboot`) is up to 64 of A-Z a-z 0-9 space . _ -; another is
+  `OhrException.InvalidConfig` (field `reason`). Agent 1063 refuses it too.
 - A bad AEAD for `OhrHpke.recipient` and an encapsulation of the wrong size for `OhrKem` decapsulation are
   `OhrException.InvalidConfig` (fields `aead`, `encapsulation`), not `IllegalArgumentException`.
 - `OhrPushService.onTokenChanged`: today the Agent calls it only when the hub ended the token (null).

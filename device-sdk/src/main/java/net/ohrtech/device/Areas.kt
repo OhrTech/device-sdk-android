@@ -313,15 +313,24 @@ object OhrPower {
     @WorkerThread
     fun battery(): Battery = parse(agentCall { api.battery() })
 
-    /** Reboots in a few seconds; the hub records [reason]. */
+    /** Reboots in a few seconds; the hub records [reason]: up to 64 of A-Z a-z 0-9 space . _ - (blank: "app"). */
     @JvmStatic
     @WorkerThread
-    fun reboot(reason: String) = agentCall { api.reboot(reason) }
+    fun reboot(reason: String): Unit {
+        checkReason(reason)
+        agentCall { api.reboot(reason) }
+    }
+
+    private val REASON = Regex("^[A-Za-z0-9 _.-]{0,64}$")
+
+    private fun checkReason(reason: String) =
+        checkArg(REASON.matches(reason), "reason") { "up to 64 of A-Z a-z 0-9 space . _ -" }
 
     /** Reboots on a schedule (the device's one; the last app to set it wins); null stops it. */
     @JvmStatic
     @WorkerThread
     fun scheduleReboot(schedule: Schedule?) = agentCall {
+        schedule?.let { checkReason(it.reason) }
         api.scheduleReboot(schedule?.let {
             JSONObject().put("time", it.time).put("days", JSONArray(it.days.sorted())).put("reason", it.reason).toString()
         })
