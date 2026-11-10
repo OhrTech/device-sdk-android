@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-11-10)
 
 - `net.ohrtech.device.json.OhrJsonApi`: the Device SDK as JSON, for SDKs that reach the library over a text bridge.
   Each method by name (`call(method, argsJson)`, JSON text back) with the area it belongs to (`areaOf`), each kind of
