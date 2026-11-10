@@ -65,10 +65,14 @@ object OhrPush {
     @WorkerThread
     fun token(): PushToken? = agentCall { api.token() }?.let { PushToken.parse(it) }
 
+    suspend fun tokenAsync(): PushToken? = withContext(Dispatchers.IO) { token() }
+
     /** Ends the token and deletes the push key. */
     @JvmStatic
     @WorkerThread
     fun unregister() = agentCall { api.unregister() }
+
+    suspend fun unregisterAsync() = withContext(Dispatchers.IO) { unregister() }
 
     /** Replaces the sender keys messages are checked against (e.g. when your server rotates them). */
     @JvmStatic
@@ -171,6 +175,12 @@ internal class PushStore(context: Context) {
         seen.put(id, keepUntilMs)
         prefs.edit().putString(SEEN, seen.toString()).commit()
         return true
+    }
+
+    /** A message id the app didn't take: the same message may come again. */
+    fun forget(id: String) {
+        val seen = runCatching { JSONObject(prefs.getString(SEEN, "{}")!!) }.getOrDefault(JSONObject())
+        if (seen.remove(id) != null) prefs.edit().putString(SEEN, seen.toString()).commit()
     }
 
     private companion object {

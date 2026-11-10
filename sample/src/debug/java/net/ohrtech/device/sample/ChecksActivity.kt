@@ -281,12 +281,13 @@ class ChecksActivity : Activity() {
     }
 
     /**
-     * The heartbeat never stalls the main thread, even while the Agent restarts: kiosk mode with a 3 s heartbeat,
-     * the main thread timed every 100 ms while the harness crashes the Agent (after "CHECK READY heartbeat-restart").
+     * The heartbeat never stalls the main thread, even while the Agent restarts: kiosk mode with a 3 s heartbeat
+     * (--el timeout ms), the main thread timed every 100 ms while the harness crashes the Agent (after
+     * "CHECK READY heartbeat-restart"). Without a crash: a healthy app stays pinned by the same process.
      */
     private fun heartbeatRestart() {
         step("kiosk start") { OhrKiosk.start(this); "pinned" }
-        runOnUiThread { OhrKiosk.heartbeat(3000) }
+        runOnUiThread { OhrKiosk.heartbeat(intent.getLongExtra("timeout", 3000)) }
         val gaps = java.util.concurrent.atomic.AtomicLong()
         val last = java.util.concurrent.atomic.AtomicLong(android.os.SystemClock.uptimeMillis())
         val tick = object : Runnable {

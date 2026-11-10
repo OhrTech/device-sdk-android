@@ -27,16 +27,23 @@ import java.util.concurrent.Executors
  * expired (2 minutes' grace for the device clock), and its id wasn't seen before. Otherwise the
  * message is dropped and the hub is told why ([onDropped]).
  *
+ * If [onMessage] throws, the message didn't reach the app: the hub is told it was dropped
+ * ("app_handler", or "app_" + [NotHandled.reason]), and its id is forgotten, so the sender may send
+ * it again. Nothing is lost silently.
+ *
  * Callbacks run one at a time on a worker thread of the service. The Agent unbinds the service
  * shortly after delivering, so start a foreground service or WorkManager for long work.
  */
 abstract class OhrPushService : Service() {
 
-    /** A verified, opened message. */
+    /** A verified, opened message. Throw if the app couldn't take it (see the class's notes). */
     @WorkerThread
     abstract fun onMessage(message: OhrPushMessage)
 
-    /** The token changed or ended (null: register again). Send a new token to your server. */
+    /**
+     * The token changed or ended. Today the Agent calls it only when the hub ended the token (null):
+     * register again, and send the new token to your server.
+     */
     @WorkerThread
     open fun onTokenChanged(token: PushToken?) {}
 
@@ -47,6 +54,13 @@ abstract class OhrPushService : Service() {
     /** The keys messages must be signed with; by default those given to [OhrPush.register] or [OhrPush.setSenderKeys]. */
     @WorkerThread
     open fun senderKeys(): List<SenderKey> = PushStore(this).senderKeys()
+
+    /**
+     * Thrown from [onMessage] when the app couldn't take the message, with why: the hub shows it as
+     * dropped with "app_" + [reason] ([a-z][a-z0-9_]{0,47}; another reason counts as "handler").
+     */
+    class NotHandled @JvmOverloads constructor(val reason: String, message: String? = null, cause: Throwable? = null) :
+        Exception(message ?: reason, cause)
 
     private val worker: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "OhrPushService") }
 
@@ -105,7 +119,15 @@ abstract class OhrPushService : Service() {
             is PushReceipt.Outcome.Accepted -> {
                 val p = outcome.plaintext
                 val m = OhrPushMessage(p.id, p.data, p.expSeconds * 1000, priority == 1, pushId)
-                runCatching { onMessage(m) }.onFailure { Log.e(TAG, "onMessage threw for $pushId", it) }
+                try {
+                    onMessage(m)
+                } catch (e: Exception) {
+                    // Not taken: tell the hub, and forget the id so the sender may send it again.
+                    val reason = (e as? NotHandled)?.reason?.takeIf { REASON.matches(it) } ?: "handler"
+                    Log.e(TAG, "Push $pushId not taken by the app ($reason)", e)
+                    PushStore(this).forget(p.id)
+                    runCatching { push.reportDropped(pushId, reason) }
+                }
             }
             is PushReceipt.Outcome.Dropped -> {
                 Log.w(TAG, "Push $pushId dropped: ${outcome.reason}")
@@ -117,6 +139,7 @@ abstract class OhrPushService : Service() {
 
     private companion object {
         const val TAG = "OhrPushService"
+        val REASON = Regex("[a-z][a-z0-9_]{0,47}")
     }
 }
 

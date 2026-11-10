@@ -48,7 +48,7 @@ class OhrKem private constructor(val algorithm: OhrKeys.Algorithm) {
         /** The shared secret of [encapsulation]; an [OhrException] if the TEE refuses. */
         @WorkerThread
         fun decapsulate(encapsulation: ByteArray): SecretKey {
-            require(encapsulation.size == encapsulationSize()) { "a ${algorithm.standardName} encapsulation is ${encapsulationSize()} bytes" }
+            net.ohrtech.device.checkArg(encapsulation.size == encapsulationSize(), "encapsulation") { "a ${algorithm.standardName} encapsulation is ${encapsulationSize()} bytes" }
             return secret(OhrKeys.decapsulate(key.alias, encapsulation))
         }
     }

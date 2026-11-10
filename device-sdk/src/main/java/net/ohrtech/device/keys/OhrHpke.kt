@@ -43,7 +43,7 @@ object OhrHpke {
     @JvmOverloads
     fun recipient(privateKey: PrivateKey, aead: Int = AEAD_AES_128_GCM): Recipient {
         val k = privateKey as? OhrPrivateKey ?: throw InvalidKeyException("not an OhrTech TEE key")
-        require(aead in AEAD_AES_128_GCM..AEAD_CHACHA20_POLY1305) { "aead is 1 (AES-128-GCM), 2 (AES-256-GCM) or 3 (ChaCha20-Poly1305)" }
+        net.ohrtech.device.checkArg(aead in AEAD_AES_128_GCM..AEAD_CHACHA20_POLY1305, "aead") { "1 (AES-128-GCM), 2 (AES-256-GCM) or 3 (ChaCha20-Poly1305)" }
         return Recipient(k, aead)
     }
 }

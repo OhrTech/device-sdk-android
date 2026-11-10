@@ -14,10 +14,32 @@ import org.json.JSONObject
  * - [log]: lines the Agent keeps (the newest 500) for log bundles, which support asks the hub for, together with
  *   the app's logcat and recent events.
  *
- * Both are one way calls: they never block, and may be called from any thread, the main one included.
+ * Both never wait for the Agent, and may be called from any thread, the main one included: the arguments are
+ * checked at once, and the call goes to the Agent from the library's own thread, in order. While the Agent
+ * restarts, up to 1,000 wait for it; beyond that the newest are dropped. (Only the process's very first call to
+ * the SDK may wait, while the library binds the Agent.)
  */
 object OhrDiagnostics {
     private val api get() = IOhrDiagnostics.Stub.asInterface(Agent.area(IOhrDeviceSdk.AREA_DIAGNOSTICS))
+
+    private val waiting = java.util.concurrent.atomic.AtomicInteger()
+    private val sender = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "OhrDeviceSdk-diagnostics").apply { isDaemon = true } }
+
+    private fun send(call: () -> Unit) {
+        if (waiting.incrementAndGet() > MAX_WAITING) {
+            waiting.decrementAndGet()
+            return
+        }
+        sender.execute {
+            try {
+                runCatching(call)
+            } finally {
+                waiting.decrementAndGet()
+            }
+        }
+    }
+
+    private const val MAX_WAITING = 1000
 
     /** [name]: lower camel or snake case, up to 64 characters; [data]: up to 2 KB as JSON. */
     @JvmStatic
@@ -30,7 +52,7 @@ object OhrDiagnostics {
         checkArg(NAME.matches(name), "name") { "event names are [a-z][A-Za-z0-9_.]{0,63}" }
         val json = data.toString()
         checkArg(json.length <= 2048, "data") { "event data is at most 2 KB as JSON" }
-        agentCall { api.event(name, json) }
+        send { agentCall { api.event(name, json) } }
     }
 
     private val NAME = Regex("^[a-z][A-Za-z0-9_.]{0,63}$")
@@ -39,7 +61,7 @@ object OhrDiagnostics {
     @JvmStatic
     fun log(priority: Int, tag: String, message: String) {
         Agent.needsVersion2()
-        agentCall { api.log(priority, tag, message) }
+        send { agentCall { api.log(priority, tag, message) } }
     }
 
     @JvmStatic

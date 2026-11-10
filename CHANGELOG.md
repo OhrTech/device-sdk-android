@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2 (unreleased)
+
+- A push message the app doesn't take is no longer lost silently. If `OhrPushService.onMessage` throws, the hub
+  shows the message as dropped (`app_handler`, or `app_` + the reason of an `OhrPushService.NotHandled`), and its
+  id is forgotten, so the sender may send it again. Before, it was logged and counted as delivered.
+- `OhrDiagnostics.event` and `log` never wait for the Agent: the arguments are checked at once and the call goes
+  from the library's own thread, in order. In 0.3.1 they waited for the Agent while it restarted.
+- `OhrPush.tokenAsync()` and `unregisterAsync()`, beside `registerAsync()`.
+- A bad AEAD for `OhrHpke.recipient` and an encapsulation of the wrong size for `OhrKem` decapsulation are
+  `OhrException.InvalidConfig` (fields `aead`, `encapsulation`), not `IllegalArgumentException`.
+- `OhrPushService.onTokenChanged`: today the Agent calls it only when the hub ended the token (null).
+
 ## 0.3.1 (2026-11-09)
 
 - The kiosk heartbeat never stalls the app's main thread. Each beat is now sent from the library's own thread;
