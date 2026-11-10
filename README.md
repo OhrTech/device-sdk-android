@@ -10,7 +10,7 @@ events and logs, and push from your own server, end to end.
 
 ```kotlin
 dependencies {
-    implementation("net.ohrtech:device-sdk:0.3.1")
+    implementation("net.ohrtech:device-sdk:0.3.2")
 }
 ```
 

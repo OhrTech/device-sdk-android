@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 (unreleased)
+## 0.3.2 (2026-11-10)
 
 - A push message the app doesn't take is no longer lost silently. If `OhrPushService.onMessage` throws, the hub
   shows the message as dropped (`app_handler`, or `app_` + the reason of an `OhrPushService.NotHandled`), and its
